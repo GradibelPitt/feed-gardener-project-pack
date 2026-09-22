@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { closeScoreCache } from './score-cache.ts';
 import {
   CandidateDecisionInputError,
   decideCandidate,
@@ -170,4 +174,47 @@ test('provider sends only title/tags and one ten-level score question; failures 
   ]) {
     await assert.rejects(decideCandidate(input()));
   }
+});
+
+test('Feeder reuses a verified title score while applying each request policy', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'feeder-decision-'));
+  const previousKey = process.env.TYPESAFE_API_KEY;
+  const previousPath = process.env.FEEDER_SCORE_DB;
+  process.env.TYPESAFE_API_KEY = 'test-only-not-a-real-key';
+  process.env.FEEDER_SCORE_DB = join(directory, 'scores.db');
+  t.after(() => {
+    closeScoreCache();
+    if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
+    if (previousPath === undefined) delete process.env.FEEDER_SCORE_DB;
+    else process.env.FEEDER_SCORE_DB = previousPath;
+    rmSync(directory, { recursive: true, force: true });
+  });
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls += 1;
+    return Response.json(answer(8));
+  });
+  const feeder = validateCandidateDecisionInput({
+    platform: 'feeder',
+    contentTitle: 'A robotics article',
+    goalTags: ['robotics'],
+    remainingVideoBudget: 1,
+    remainingMinuteBudget: 1,
+    provider: 'jev',
+  });
+  const [first, second] = await Promise.all([
+    decideCandidate(feeder),
+    decideCandidate({ ...feeder, remainingVideoBudget: 0 }),
+  ]);
+  assert.equal(calls, 1);
+  assert.equal(first.action, 'watch_candidate');
+  assert.equal(second.action, 'escalate_for_review');
+  closeScoreCache();
+  assert.equal((await decideCandidate(feeder)).relevanceScore, 9);
+  assert.equal(calls, 1);
+  await decideCandidate({ ...feeder, goalTags: ['gardening'] });
+  assert.equal(calls, 2);
+  delete process.env.TYPESAFE_API_KEY;
+  await assert.rejects(decideCandidate(feeder), /JEV_MODEL_NOT_CONFIGURED/);
 });

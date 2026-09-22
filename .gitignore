@@ -11,6 +11,7 @@ test-results/
 .turbo/
 .pnpm-store/
 .cache/
+.data/
 *.tsbuildinfo
 next-env.d.ts
 *.log

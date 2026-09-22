@@ -137,6 +137,8 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 程序向 Jev 只发送标题和用户 tags，提出唯一 `target_relevance` Score 问题，使用十条相关度描述。依照 [官方 Score 合同](https://docs.typesafe.ai/primitives/score)，返回范围是 0–9（允许小数），程序加 1 得到 `relevanceScore` 1–10，保留小数。多 tags 按与任一选定 tag 的相关度评分，不代表每个 tag 都匹配。
 
+Feeder 标题评分在服务端有六小时本地 SQLite 缓存，网页与 CLI 复用同一份分数。键由标题、规范化后的 tags、请求模型名与评分 rubric 版本生成 SHA-256；数据库只存哈希、分数、置信度、返回模型与时间，不存标题或原始 tags。缓存只用于 `platform: "feeder"` 且 Jev 已配置的成功评分；无 key、上游失败及其他平台的决策均不命中。缓存读取或写入失败时继续正常调用 Jev。每次响应仍按本次预算与置信度重新执行程序策略，不复用旧动作。默认路径为 `.data/scores.db`，可由 `FEEDER_SCORE_DB` 覆盖；请求与响应合同不变。
+
 程序策略：分数 ≤3 跳过，≥7 为观看候选，3–7 之间待复核。置信度 <0.70 或剩余预算不足一个视频/一分钟时强制复核。阈值是本项目默认策略，尚未用真实标注视频校准，不是 Jev 的动作建议或平台权重。
 
 响应保持 `{ data: { decision, boundary }, meta }`。`decision` 返回 `action`、`provider`、可选 `model`、`relevanceScore`、`confidence`、`evidenceBasis: title_only`、`policyOverrides`、`executionAuthorization: none`、`requiresRunnerValidation: true`。无 key 的 `auto` 和显式 `deterministic` 返回空分数/空置信度与复核动作，不制造语义评分。显式 `jev` 无 key 返回 503；坏输入返回 422；超时、上游失败、缺字段、非数值或越界评分返回 502，不产生动作结果，也不静默降级。所有平台动作仍须独立身份、同意、预算和许可核验，不能把 Agent 动作写成用户偏好。

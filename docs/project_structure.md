@@ -73,6 +73,7 @@ feed_gardener_project_pack/
     ├── docs/
     │   ├── feeder_product_goal.md
     │   ├── interface_contract.md
+    │   ├── jev_crawler_merge_review.md
     │   ├── project_structure.md
     │   └── youtube_positive_feedback_design.md
     ├── lib/
@@ -108,6 +109,8 @@ feed_gardener_project_pack/
     │   ├── locale.ts
     │   ├── resources.test.ts
     │   ├── resources.ts
+    │   ├── score-cache.test.ts
+    │   ├── score-cache.ts
     │   ├── strategy.test.ts
     │   ├── strategy.ts
     │   ├── tag-suggestions.test.ts

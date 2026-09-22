@@ -1,3 +1,5 @@
+import { readScore, scoreCacheKey, writeScore, type CachedScore } from './score-cache.ts';
+
 export type CandidateDecisionAction = 'watch_candidate' | 'skip_candidate' | 'escalate_for_review';
 export type CandidateDecisionProvider = 'auto' | 'deterministic' | 'jev';
 
@@ -158,6 +160,8 @@ export function parseJevCandidateDecision(
 
 export const isJevConfigured = () => Boolean(process.env.TYPESAFE_API_KEY);
 
+const inFlightFeederScores = new Map<string, Promise<CachedScore>>();
+
 async function callJev(input: CandidateDecisionInput): Promise<CandidateDecision> {
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey) throw new Error('JEV_MODEL_NOT_CONFIGURED');
@@ -204,8 +208,62 @@ async function callJev(input: CandidateDecisionInput): Promise<CandidateDecision
   }
 }
 
+async function scoreFeederTitle(input: CandidateDecisionInput): Promise<CandidateDecision> {
+  if (!isJevConfigured()) throw new Error('JEV_MODEL_NOT_CONFIGURED');
+  const key = scoreCacheKey(
+    input.videoTitle,
+    input.goalTags,
+    process.env.TYPESAFE_MODEL || 'jev-latest',
+  );
+  try {
+    const cached = readScore(key);
+    if (cached) {
+      return {
+        ...applyScorePolicy(input, cached.score, cached.confidence, 'jev'),
+        ...(cached.model ? { model: cached.model } : {}),
+      };
+    }
+  } catch {
+    // A missing or unwritable local cache must not make Jev scoring unavailable.
+  }
+
+  let pending = inFlightFeederScores.get(key);
+  if (!pending) {
+    pending = callJev(input).then((decision) => {
+      if (decision.relevanceScore === null || decision.confidence === null) {
+        throw new Error('JEV_INVALID_RESPONSE');
+      }
+      const rating: CachedScore = {
+        score: decision.relevanceScore,
+        confidence: decision.confidence,
+        model: decision.model,
+      };
+      try {
+        writeScore(key, rating);
+      } catch {
+        // Scoring succeeded; the cache is only an optimization.
+      }
+      return rating;
+    });
+    inFlightFeederScores.set(key, pending);
+    void pending
+      .finally(() => {
+        if (inFlightFeederScores.get(key) === pending) inFlightFeederScores.delete(key);
+      })
+      .catch(() => {});
+  }
+  const rating = await pending;
+  return {
+    ...applyScorePolicy(input, rating.score, rating.confidence, 'jev'),
+    ...(rating.model ? { model: rating.model } : {}),
+  };
+}
+
 export async function decideCandidate(input: CandidateDecisionInput): Promise<CandidateDecision> {
   if (input.provider === 'deterministic') return deterministicCandidateDecision(input);
-  if (input.provider === 'jev') return callJev(input);
-  return isJevConfigured() ? callJev(input) : deterministicCandidateDecision(input, true);
+  if (input.provider === 'jev') {
+    return input.platform === 'feeder' ? scoreFeederTitle(input) : callJev(input);
+  }
+  if (!isJevConfigured()) return deterministicCandidateDecision(input, true);
+  return input.platform === 'feeder' ? scoreFeederTitle(input) : callJev(input);
 }
