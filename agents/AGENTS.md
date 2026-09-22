@@ -4,7 +4,7 @@ Follow `docs/instructionGoal.md`, `docs/feeder_product_goal.md`, `docs/currentPr
 
 Before adding any interface, search `lib/api-contract.ts`, existing Route Handlers, callers, and tests. Reuse an existing interface whenever possible; otherwise change the existing interface compatibly. Do not invent a new endpoint, adapter, or duplicate contract unless the existing contracts cannot express the requirement and a concrete caller, failure model, migration, and tests are documented. All HTTP APIs must use the shared registry and response envelope in `lib/api-contract.ts`.
 
-Run `pnpm docs:structure` after changing the repository layout. The generated tree in `docs/project_structure.md` and `docs/README.md` must stay synchronized.
+Run `pnpm docs:structure` after changing the repository layout. The generated tree lives in `docs/project_structure.md`; keep the root `README.md` focused on the product and getting started.
 
 Do not invoke, load, read, or apply any Skill unless the user's current message explicitly requests Skill use.
 

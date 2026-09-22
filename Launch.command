@@ -10,7 +10,7 @@ if curl --fail --silent --max-time 2 http://127.0.0.1:3000 | /usr/bin/grep -q 'F
 fi
 
 if ! command -v pnpm >/dev/null 2>&1; then
-  print '需要 Node.js 和 pnpm。请按 docs/README.md 安装后重新启动。'
+  print '需要 Node.js 和 pnpm。请按 README.md 安装后重新启动。'
   read -r '?按回车退出…'
   exit 1
 fi
