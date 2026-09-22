@@ -1,0 +1,139 @@
+# Project Structure
+
+此文件由 `scripts/generate-project-structure.mjs` 自动维护，请勿手动编辑目录树。被 Git 忽略的内部文档、依赖和构建产物不会出现在公开树中。
+
+```text
+feed_gardener_project_pack/
+    ├── .agents/
+    │   └── skills/
+    │       └── typesafe-ai/
+    │           ├── LICENSE
+    │           └── SKILL.md
+    ├── agents/
+    │   ├── feed-gardener/
+    │   │   └── SKILL.md
+    │   ├── 01_original_reply.md
+    │   ├── 02_agent_project_brief.md
+    │   ├── AGENTS.md
+    │   ├── instruction.md
+    │   └── memory.md
+    ├── app/
+    │   ├── api/
+    │   │   ├── agent/
+    │   │   │   └── v1/
+    │   │   │       ├── capabilities/
+    │   │   │       │   └── route.ts
+    │   │   │       ├── decisions/
+    │   │   │       │   └── preview/
+    │   │   │       │       └── route.ts
+    │   │   │       ├── evaluations/
+    │   │   │       │   └── preview/
+    │   │   │       │       └── route.ts
+    │   │   │       ├── observations/
+    │   │   │       │   └── analyze/
+    │   │   │       │       └── route.ts
+    │   │   │       └── plans/
+    │   │   │           └── route.ts
+    │   │   ├── connections/
+    │   │   │   └── youtube/
+    │   │   │       ├── callback/
+    │   │   │       │   └── route.ts
+    │   │   │       └── route.ts
+    │   │   ├── harvest/
+    │   │   │   └── route.ts
+    │   │   ├── social/
+    │   │   │   └── resolve/
+    │   │   │       └── route.ts
+    │   │   └── tags/
+    │   │       └── suggest/
+    │   │           └── route.ts
+    │   ├── instructions/
+    │   │   └── page.tsx
+    │   ├── globals.css
+    │   ├── icon.svg
+    │   ├── layout.tsx
+    │   └── page.tsx
+    ├── cli/
+    │   ├── cli.test.ts
+    │   ├── main.ts
+    │   └── state.ts
+    ├── components/
+    │   ├── DiscoveryGallery.tsx
+    │   ├── FeederWorkspace.module.css
+    │   ├── FeederWorkspace.tsx
+    │   ├── garden.css
+    │   ├── Garden.tsx
+    │   ├── Onboarding.tsx
+    │   ├── ResourceLibrary.tsx
+    │   ├── SelectedTagsToggle.tsx
+    │   ├── SourceBoards.tsx
+    │   ├── WorkspaceSidebar.tsx
+    │   ├── youtube-connection.css
+    │   └── YouTubeConnection.tsx
+    ├── docs/
+    │   ├── feeder_product_goal.md
+    │   ├── interface_contract.md
+    │   ├── project_structure.md
+    │   ├── README.md
+    │   └── youtube_positive_feedback_design.md
+    ├── lib/
+    │   ├── crawler/
+    │   │   ├── arxiv.ts
+    │   │   ├── core.ts
+    │   │   ├── github.ts
+    │   │   ├── hackernews.ts
+    │   │   ├── harvest.ts
+    │   │   ├── merge.ts
+    │   │   ├── social.ts
+    │   │   ├── types.ts
+    │   │   └── youtube.ts
+    │   ├── agent-observation.test.ts
+    │   ├── agent-observation.ts
+    │   ├── api-contract.test.ts
+    │   ├── api-contract.ts
+    │   ├── candidate-decision.test.ts
+    │   ├── candidate-decision.ts
+    │   ├── crawler.test.ts
+    │   ├── feed-observation.test.ts
+    │   ├── feed-observation.ts
+    │   ├── feed-simulator.test.ts
+    │   ├── feed-simulator.ts
+    │   ├── feed.test.ts
+    │   ├── feed.ts
+    │   ├── feeder.test.ts
+    │   ├── feeder.ts
+    │   ├── garden.test.ts
+    │   ├── garden.ts
+    │   ├── harvest.test.ts
+    │   ├── locale.test.ts
+    │   ├── locale.ts
+    │   ├── resources.test.ts
+    │   ├── resources.ts
+    │   ├── strategy.test.ts
+    │   ├── strategy.ts
+    │   ├── tag-suggestions.test.ts
+    │   ├── tag-suggestions.ts
+    │   ├── youtube-connection.test.ts
+    │   └── youtube-connection.ts
+    ├── public/
+    │   └── fonts/
+    │       ├── dm-sans-0.ttf
+    │       ├── dm-sans-1.ttf
+    │       ├── dm-sans-2.ttf
+    │       ├── dm-sans-3.ttf
+    │       ├── dmsans-OFL.txt
+    │       ├── libre-caslon-4.ttf
+    │       └── librecaslondisplay-OFL.txt
+    ├── scripts/
+    │   └── generate-project-structure.mjs
+    ├── .env.example
+    ├── .gitignore
+    ├── .prettierignore
+    ├── .prettierrc.json
+    ├── Launch.command
+    ├── next.config.ts
+    ├── package.json
+    ├── pnpm-lock.yaml
+    ├── skills-lock.json
+    └── tsconfig.json
+```

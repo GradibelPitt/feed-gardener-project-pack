@@ -1,0 +1,70 @@
+import { apiError, apiSuccess } from '@/lib/api-contract';
+import { harvestPublicSources } from '@/lib/crawler/harvest';
+import { LIVE_SOURCES, type LiveSource } from '@/lib/crawler/types';
+import { setYouTubeSearchApiKey } from '@/lib/crawler/youtube';
+
+export const runtime = 'nodejs';
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const forceRefresh = url.searchParams.get('refresh') === 'true';
+  const tags = url.searchParams
+    .getAll('tag')
+    .filter((tag) => tag.length <= 80)
+    .slice(0, 2);
+  const requestedSource = url.searchParams.get('source');
+  if (requestedSource !== null && !LIVE_SOURCES.includes(requestedSource as LiveSource)) {
+    return apiError(400, 'INVALID_SOURCE', 'Unknown public source.');
+  }
+  const payload = await harvestPublicSources(
+    forceRefresh,
+    tags,
+    requestedSource === null ? undefined : (requestedSource as LiveSource),
+  );
+  return apiSuccess(payload, {
+    headers: {
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+export async function PUT(request: Request) {
+  const url = new URL(request.url);
+  const requestOrigin = `${url.protocol}//${request.headers.get('host') ?? url.host}`;
+  let localHost = false;
+  try {
+    localHost = ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(requestOrigin).hostname);
+  } catch {
+    return apiError(403, 'ORIGIN_MISMATCH', 'Open this action from the local Feed Gardener app.');
+  }
+  if (!localHost || request.headers.get('origin') !== requestOrigin) {
+    return apiError(403, 'ORIGIN_MISMATCH', 'Open this action from the local Feed Gardener app.');
+  }
+  if (!request.headers.get('content-type')?.startsWith('application/json')) {
+    return apiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Expected a JSON request.');
+  }
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (declaredLength > 512) return apiError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
+  let body: unknown;
+  try {
+    const raw = await request.text();
+    if (raw.length > 512) return apiError(413, 'REQUEST_TOO_LARGE', 'Request is too large.');
+    body = JSON.parse(raw);
+  } catch {
+    return apiError(400, 'INVALID_JSON', 'Expected a JSON request.');
+  }
+  const input = body as { source?: unknown; apiKey?: unknown } | null;
+  if (
+    !input ||
+    input.source !== 'YouTube' ||
+    typeof input.apiKey !== 'string' ||
+    !/^[A-Za-z0-9_-]{20,256}$/.test(input.apiKey.trim())
+  ) {
+    return apiError(422, 'INVALID_YOUTUBE_KEY', 'Enter a valid YouTube Data API key.');
+  }
+  setYouTubeSearchApiKey(input.apiKey.trim());
+  return apiSuccess(
+    { configured: true },
+    { headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } },
+  );
+}

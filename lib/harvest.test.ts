@@ -1,0 +1,121 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { harvestPublicSources } from './crawler/harvest.ts';
+import { mergeHarvestPayload } from './crawler/merge.ts';
+import {
+  setYouTubeSearchApiKey,
+  youtubeSearchConfigured,
+  youtubeSearchKeyRevision,
+} from './crawler/youtube.ts';
+
+test('a scoped harvest contacts only the selected public source', async () => {
+  const originalFetch = globalThis.fetch;
+  const requested: string[] = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input));
+    return new Response(
+      `<?xml version="1.0"?><rss><channel><item>
+      <title>example / project</title><link>https://github.com/example/project</link>
+      <description>Agent developer tool</description>
+      <pubDate>Sat, 19 Sep 2026 10:00:00 GMT</pubDate>
+    </item></channel></rss>`,
+      { status: 200 },
+    );
+  };
+  try {
+    const payload = await harvestPublicSources(true, [], 'GitHub');
+    assert.equal(requested.length, 1);
+    assert.match(requested[0], /GitHubTrendingRSS/);
+    assert.deepEqual(payload.sections.social, []);
+    assert.deepEqual(payload.sections.academic, []);
+    assert.equal(payload.sections.opensource[0]?.source, 'GitHub');
+    assert.deepEqual(
+      payload.health.map((health) => health.source),
+      ['GitHub'],
+    );
+
+    requested.length = 0;
+    const social = await harvestPublicSources(true, [], 'TikTok');
+    assert.deepEqual(requested, [], 'a URL-only platform must not crawl without a post URL');
+    assert.deepEqual(
+      social.health.map((health) => health.source),
+      ['TikTok'],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('scoped results replace one source while retaining other fetched sections', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('GitHubTrendingRSS')) {
+      return new Response(
+        `<?xml version="1.0"?><rss><channel><item>
+        <title>example / project</title><link>https://github.com/example/project</link>
+        <description>Agent developer tool</description>
+      </item></channel></rss>`,
+        { status: 200 },
+      );
+    }
+    if (url.endsWith('/beststories.json')) return Response.json([123]);
+    if (url.endsWith('/item/123.json'))
+      return Response.json({ id: 123, type: 'story', title: 'Agent test', by: 'alice' });
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+  try {
+    const github = await harvestPublicSources(true, [], 'GitHub');
+    const hackerNews = await harvestPublicSources(true, [], 'Hacker News');
+    const merged = mergeHarvestPayload(github, hackerNews);
+    assert.deepEqual(
+      merged.sections.opensource.map((item) => item.source),
+      ['GitHub', 'Hacker News'],
+    );
+    assert.deepEqual(
+      merged.health.map((health) => health.source),
+      ['GitHub', 'Hacker News'],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('entering a YouTube key enables search and invalidates the unconfigured snapshot', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnvKey = process.env.YOUTUBE_API_KEY;
+  const fakeKey = `AIza${'a'.repeat(35)}`;
+  const requests: string[] = [];
+  delete process.env.YOUTUBE_API_KEY;
+  setYouTubeSearchApiKey(null);
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    requests.push(url.pathname);
+    assert.equal(url.searchParams.get('key'), fakeKey);
+    return Response.json({ items: [] });
+  };
+  try {
+    const before = await harvestPublicSources(true, ['Robotics'], 'YouTube');
+    assert.equal(before.health[0]?.state, 'configuration_required');
+    assert.equal(requests.length, 0);
+    const revision = youtubeSearchKeyRevision();
+    setYouTubeSearchApiKey(fakeKey);
+    assert.equal(youtubeSearchConfigured(), true);
+    assert.equal(youtubeSearchKeyRevision(), revision + 1);
+    const after = await harvestPublicSources(false, ['Robotics'], 'YouTube');
+    assert.equal(after.cache, 'fresh');
+    assert.deepEqual(requests, ['/youtube/v3/search']);
+    assert.equal(JSON.stringify(after).includes(fakeKey), false);
+    globalThis.fetch = async () => {
+      throw new Error(`Request failed at URL containing ${fakeKey}`);
+    };
+    const failed = await harvestPublicSources(true, ['Robotics'], 'YouTube');
+    assert.equal(failed.health[0]?.state, 'error');
+    assert.equal(JSON.stringify(failed).includes(fakeKey), false);
+  } finally {
+    setYouTubeSearchApiKey(null);
+    globalThis.fetch = originalFetch;
+    if (originalEnvKey === undefined) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = originalEnvKey;
+  }
+});

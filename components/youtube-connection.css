@@ -1,0 +1,215 @@
+.youtube-connect-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 12px 18px;
+  border: 1px solid #ad4339;
+  border-radius: 11px;
+  background: #ad4339;
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.youtube-connect-button:hover {
+  background: #963a31;
+}
+.youtube-connect-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.youtube-connect-button:focus-visible,
+.youtube-connection-dialog a:focus-visible {
+  outline: 3px solid #ce9285;
+  outline-offset: 3px;
+}
+.youtube-connect-compact {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.youtube-connect-compact.is-connected {
+  background: #eef3eb;
+  color: #42634a;
+  border-color: #cad9c8;
+}
+.youtube-connection-card {
+  padding: 25px;
+  margin: 0 0 24px;
+  border: 1px solid #e5cfc7;
+  border-radius: 20px;
+  background: linear-gradient(115deg, #fffaf4, #f9eeea);
+  color: #313b36;
+}
+.youtube-connection-heading,
+.youtube-brand,
+.youtube-connection-actions,
+.youtube-dialog-heading {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.youtube-connection-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.youtube-brand > svg,
+.youtube-dialog-heading > svg {
+  color: #b5463c;
+  flex-shrink: 0;
+}
+.youtube-brand h2 {
+  margin: 0 0 5px;
+  font-size: 23px;
+  font-weight: 600;
+}
+.youtube-brand span {
+  font-size: 14px;
+  color: #717870;
+}
+.youtube-connection-status {
+  padding: 6px 10px;
+  border-radius: 30px;
+  background: #eee2d9;
+  color: #765d50;
+  font-size: 12px;
+}
+.youtube-connection-status.is-connected {
+  background: #e3eddf;
+  color: #42634a;
+}
+.youtube-connection-card > p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 18px 0;
+}
+.youtube-connection-actions {
+  flex-wrap: wrap;
+}
+.youtube-connection-actions > a:not(.youtube-connect-button) {
+  font-size: 13px;
+  color: #68746a;
+}
+.youtube-connection-dialog {
+  width: min(550px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  border: 1px solid #e5d9cc;
+  border-radius: 23px;
+  padding: 30px;
+  background: #fffdf8;
+  color: #313b36;
+  box-shadow: 0 30px 100px #182d3333;
+}
+.youtube-connection-dialog::backdrop {
+  background: #15242266;
+  backdrop-filter: blur(5px);
+}
+.youtube-dialog-heading {
+  justify-content: space-between;
+}
+.youtube-connection-dialog h2 {
+  margin: 22px 0 15px;
+  font-size: 29px;
+  line-height: 1.2;
+}
+.youtube-connection-dialog p {
+  font-size: 15px;
+  line-height: 1.65;
+}
+.youtube-connection-dialog a {
+  color: #8c3f34;
+}
+.youtube-connection-dialog a.youtube-connect-button {
+  color: white;
+}
+.youtube-connection-dialog .youtube-dialog-small {
+  font-size: 13px;
+  color: #6d786e;
+}
+.youtube-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 23px 0;
+}
+.youtube-consent input {
+  margin-top: 4px;
+  accent-color: #a64036;
+}
+.youtube-setup-details {
+  padding: 16px;
+  border: 1px solid #e7dbcf;
+  border-radius: 12px;
+  margin: 20px 0;
+  background: #f7f2e9;
+  font-size: 13px;
+}
+.youtube-setup-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.youtube-setup-details ol {
+  padding-left: 20px;
+  line-height: 1.65;
+}
+.youtube-setup-details li {
+  margin: 10px 0;
+}
+.youtube-setup-details code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  margin: 7px 0;
+  user-select: all;
+}
+.youtube-manage-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 24px;
+  font-size: 12px;
+}
+.youtube-feedback {
+  padding: 12px;
+  background: #efe9dd;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.youtube-feedback button {
+  color: #8c3f34;
+  text-decoration: underline;
+  margin-left: 5px;
+}
+.youtube-loading {
+  animation: youtube-spin 1s linear infinite;
+}
+@keyframes youtube-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .youtube-loading {
+    animation: none;
+  }
+}
+@media (max-width: 640px) {
+  .youtube-connect-compact span {
+    display: none;
+  }
+  .youtube-connect-compact {
+    padding: 8px;
+  }
+  .youtube-connection-card {
+    padding: 20px;
+  }
+  .youtube-connection-dialog {
+    padding: 23px;
+  }
+}
