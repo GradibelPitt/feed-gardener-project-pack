@@ -72,6 +72,22 @@ feed_gardener_project_pack/
     │   ├── YouTubeConnection.tsx
     │   └── YouTubeVideo.tsx
     ├── docs/
+    │   ├── images/
+    │   │   └── discovery-walkthrough/
+    │   │       ├── 01-welcome.jpg
+    │   │       ├── 02-choose-world.jpg
+    │   │       ├── 03-technology-groups.jpg
+    │   │       ├── 04-tags-selected.jpg
+    │   │       ├── 05-exclusion-step.jpg
+    │   │       ├── 06-exclusion-selected.jpg
+    │   │       ├── 07-before-configuration.jpg
+    │   │       ├── 08-before-harvest.jpg
+    │   │       ├── 09-after-harvest.jpg
+    │   │       ├── 10-after-harvest-summary.jpg
+    │   │       ├── 11-after-harvest-items.jpg
+    │   │       ├── 12-why-this-item.jpg
+    │   │       ├── 13-source-overview.jpg
+    │   │       └── 14-arxiv-source.jpg
     │   ├── feeder_product_goal.md
     │   ├── interface_contract.md
     │   ├── jev_crawler_merge_review.md
@@ -133,6 +149,8 @@ feed_gardener_project_pack/
     ├── .gitignore
     ├── .prettierignore
     ├── .prettierrc.json
+    ├── AGENTS.md
+    ├── CLAUDE.md
     ├── Launch.command
     ├── next.config.ts
     ├── package.json
