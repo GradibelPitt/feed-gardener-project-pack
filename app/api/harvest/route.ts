@@ -58,13 +58,13 @@ export async function PUT(request: Request) {
     !input ||
     input.source !== 'YouTube' ||
     typeof input.apiKey !== 'string' ||
-    !/^[A-Za-z0-9_-]{20,256}$/.test(input.apiKey.trim())
+    (input.apiKey.trim() !== '' && !/^[A-Za-z0-9_-]{20,256}$/.test(input.apiKey.trim()))
   ) {
     return apiError(422, 'INVALID_YOUTUBE_KEY', 'Enter a valid YouTube Data API key.');
   }
   setYouTubeSearchApiKey(input.apiKey.trim());
   return apiSuccess(
-    { configured: true },
+    { configured: input.apiKey.trim() !== '' },
     { headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } },
   );
 }

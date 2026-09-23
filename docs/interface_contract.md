@@ -9,11 +9,13 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 新产品方向见 [`feeder_product_goal.md`](feeder_product_goal.md)：Feeder 主页面复用 `GET /api/harvest` 的真实候选与 `POST /api/agent/v1/decisions/preview` 的 Jev 标题相关度分数，构建用户选择 1–10 目标均分的模拟 Feed；没有新增 HTTP Route。旧动作字段仅为预览兼容，主 Feed 不按 `watch_candidate` 执行任何平台操作。不能将 `executionAuthorization: none` 解释成播放或点赞授权。
 
-`GET /api/harvest` 向后兼容地接受最多两个 `tag` 查询参数，作为配置了服务端 `YOUTUBE_API_KEY` 时的官方 YouTube `search.list` 主题查询。程序从搜索结果取得视频链接，再用 `videos.list(part=status)` 确认可嵌入且非 Made for Kids 后转换为隐私增强模式的官方播放器地址；播放器在主页显示视频自己的标题和封面，不自动播放。状态不满足时只显示 API 标题、封面及回源链接。未配置时 `health` 报 `configuration_required`，不伪造视频。搜索结果不传给 Jev，也不计入均分，因为 [YouTube 开发者政策](https://developers.google.com/youtube/terms/developer-policies)限制用 API 数据生成衍生评分。数据只在既有五分钟内存缓存中；不抓取 YouTube 页面或账号首页。
+`GET /api/harvest` 向后兼容地接受最多两个 `tag` 查询参数，作为配置了服务端 `YOUTUBE_API_KEY` 时的官方 YouTube `search.list` 主题查询。程序从搜索结果取得视频链接，再用 `videos.list(part=status)` 确认可嵌入且非 Made for Kids 后转换为隐私增强模式的官方播放器地址；视频卡片先显示 API 标题和封面，用户点击播放后才加载播放器，不自动播放。状态不满足时只显示 API 标题、封面及回源链接。未配置时 `health` 报 `configuration_required`，不伪造视频。搜索结果不传给 Jev，也不计入均分，因为 [YouTube 开发者政策](https://developers.google.com/youtube/terms/developer-policies)限制用 API 数据生成衍生评分。数据只在既有五分钟内存缓存中；不抓取 YouTube 页面或账号首页。
+
+服务端调用 Google API 时通过 `x-goog-api-key` 请求头传递密钥，不将密钥写入请求 URL。
 
 `GET /api/harvest` 还可选传单个 `source`，取值为既有来源名 `arXiv`、`GitHub`、`Hacker News`、`YouTube`、`TikTok`、`X` 或 `Instagram`。缺失时保留原批量行为；指定时只运行该来源已有的采集器，返回相同的 `sections` / `health` / `warnings` 形状。TikTok、X、Instagram 不支持无链接的搜索，因此该参数只返回能力状态，不请求外部平台；单条公开 URL 仍用既有 `POST /api/social/resolve`。无效来源返回 400。来源与标签共同构成五分钟缓存键；`refresh=true` 仍强制刷新。前端进入页面和切换板块不调用采集，点击来源按钮或手动刷新才调用。
 
-`PUT /api/harvest` 是同一采集资源的本机 YouTube 搜索配置操作，接收 JSON `{ "source": "YouTube", "apiKey": "..." }`。只接受本机同源请求与 20–256 个安全字符的 key；返回 `{ "configured": true }`，永不回传 key。网页以密码框提交，成功后清空输入并通过 `GET /api/harvest?source=YouTube&refresh=true` 搜索已选主题。key 仅留在本机服务进程内存，不写 localStorage、CLI 文件、磁盘或日志；重启即失效。环境变量 `YOUTUBE_API_KEY` 仍兼容；网页输入在本次进程中覆盖它。配置变更使旧的 YouTube 采集缓存失效。此 key 与 YouTube OAuth 账号连接无关。
+`PUT /api/harvest` 是同一采集资源的本机 YouTube 搜索配置操作，接收 JSON `{ "source": "YouTube", "apiKey": "..." }`。只接受本机同源请求与 20–256 个安全字符的 key；返回 `{ "configured": true }`，永不回传 key。传入空字符串 `apiKey: ""` 会清除本次进程的搜索 key 并返回 `{ "configured": false }`；若有环境变量 key，也会暂时禁用搜索，重启后恢复环境变量配置。网页以密码框提交，成功后清空输入并通过 `GET /api/harvest?source=YouTube&refresh=true` 搜索已选主题。key 仅留在本机服务进程内存，不写 localStorage、CLI 文件、磁盘或日志；重启即失效。环境变量 `YOUTUBE_API_KEY` 仍兼容；网页输入在本次进程中覆盖它。配置变更使旧的 YouTube 采集缓存失效。此 key 与 YouTube OAuth 账号连接无关。
 
 ## 统一包络
 
@@ -102,7 +104,7 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 引导最终只存储用户实际选择的 tag，领域 ID 从这些 tag 推导；排除项不能与喜欢项重复。旧本地资料无需迁移，现有读取器仍会丢弃未知 ID。扩展不增加外部采集能力；没有内容匹配时允许结果为空。唯一性、分组引用、旧 ID 兼容和非技术偏好不误配技术样例由 `lib/feed.test.ts` 验证。
 
-`Preferences.onlySelectedTags` 为本地可选布尔字段，旧资料缺失时按 `false` 读取；首次引导跳过排除步骤时设为 `true`。发现页、Garden 控制台和偏好编辑器共用此开关：开启后必须至少匹配一个已选 tag，同领域其他 tag 与探索范围不能绕过它；额外携带未选 tag 不构成排除，但显式排除项始终优先。关闭后恢复既有领域/探索规则，保留原探索配置。保存列表与资源库不因此隐藏已有收藏。公开源仅按元数据 tags 与目录 ID/中英文标签的规范化精确匹配过滤，并兼容既有采集器的 `Agent` → `agents` 别名；未标注的内容不猜测相关性。不增加来源搜索、Jev 语义评分或原生平台执行能力。复用既有采集响应和本地偏好，不增加 HTTP 接口；浏览器持久化、候选过滤和开关交互分别验证。
+`Preferences.onlySelectedTags` 为本地可选布尔字段，旧资料缺失时按 `false` 读取；首次引导跳过排除步骤时设为 `true`。发现页、Garden 控制台和偏好编辑器共用此开关：开启后必须至少匹配一个已选 tag，同领域其他 tag 与探索范围不能绕过它；额外携带未选 tag 不构成排除，但显式排除项始终优先。关闭后恢复既有领域/探索规则，保留原探索配置。保存列表与资源库不因此隐藏已有收藏。公开源仅按元数据 tags 与目录 ID/中英文标签的规范化精确匹配过滤，并兼容既有采集器的 `Agent` → `agents` 别名；未标注的内容不猜测相关性。此筛选规则不以 Jev 分数作为准入条件，也不执行原生平台操作。复用既有采集响应和本地偏好，不增加 HTTP 接口；浏览器持久化、候选过滤和开关交互分别验证。
 
 ## 本地资源库的分类与粘贴链接
 
@@ -131,7 +133,7 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 ## Jev 标题评分与程序动作（2026-09-21）
 
-已搜索注册表、全部 Route、调用方与测试；复用 `previewDecision`，不新增 endpoint 或 adapter。当前调用入口仍为 API；Discover 的说明按钮不触发评分。采集与真实播放 Runner 尚未接入。
+已搜索注册表、全部 Route、调用方与测试；复用 `previewDecision`，不新增 endpoint 或 adapter。主 Feed 与 Discover → Sources 的可见公开结果复用此 API 的 Jev 标题评分。Sources 每张结果卡显示评分中、实际 1–10 分或明确的不可用状态，失败时可重试；同一标题与兴趣组合在当前页面内复用评分。YouTube API 搜索结果不送 Jev，见上文政策边界。采集独立于评分；真实播放 Runner 尚未接入。
 
 请求继续支持 `{ platform, videoTitle, goalTags, remainingVideoBudget, remainingMinuteBudget, provider? }`；为 Feeder 兼容扩展 `platform: "feeder"` 时改用 `contentTitle`，其余字段与旧合同相同。标题 1–1000 字符，用户选定 tags 1–12 项、每项 1–80 字符，预算必须显式提供；`provider` 可为 `auto`（默认）、`jev`、`deterministic`。主 Feed 固定请求 `jev`，仅取 `relevanceScore`、`confidence` 和 `provider`，不取旧动作。标题评分不等于内容核验。
 

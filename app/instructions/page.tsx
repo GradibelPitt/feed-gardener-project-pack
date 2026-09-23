@@ -68,9 +68,9 @@ export default function InstructionsPage() {
         <section id="youtube-privacy">
           <h2>YouTube connection & privacy</h2>
           <p>
-            Use Connect to YouTube in the top bar, Garden, or Connections & privacy. Google handles
-            sign-in. This app requests read access to your YouTube account and uses it to identify
-            your channel; connecting does not like, dislike, or play videos.
+            Use Connect to YouTube in Connections & privacy. Google handles sign-in. This app
+            requests read access to your YouTube account and uses it to identify your channel;
+            connecting does not like, dislike, or play videos.
           </p>
           <p>
             The local server holds the access token and channel ID/name in memory for up to one

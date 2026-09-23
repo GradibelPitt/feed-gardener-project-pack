@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Bookmark,
@@ -30,6 +30,16 @@ import { mergeHarvestPayload } from '@/lib/crawler/merge';
 import { readApiData } from '@/lib/api-contract';
 import type { Locale } from '@/lib/locale';
 import { matchesHarvestPreferences, type Preferences } from '@/lib/feed';
+import type { JevRating } from '@/lib/feed-simulator';
+import YouTubeVideo from './YouTubeVideo';
+
+type SourceRating =
+  | { state: 'scored'; rating: JevRating }
+  | { state: 'unavailable'; reason: 'not_configured' | 'failed' };
+
+function ratingKey(item: HarvestItem, goalKey: string): string {
+  return `${goalKey}\u0001${item.url}\u0000${item.title}`;
+}
 
 type Props = {
   locale: Locale;
@@ -41,6 +51,7 @@ type Props = {
   t: (zh: string, en: string) => string;
   savedResourceIds: string[];
   onSaveResource: (item: HarvestItem) => void;
+  onRelaxMatching?: () => void;
 };
 
 const SOCIAL_STORAGE = 'feed-gardener-social-imports-v1';
@@ -158,11 +169,17 @@ function ItemCard({
   locale,
   saved,
   onSave,
+  rating,
+  hasInterests,
+  onRetryScore,
 }: {
   item: HarvestItem;
   locale: Locale;
   saved: boolean;
   onSave: () => void;
+  rating?: SourceRating;
+  hasInterests: boolean;
+  onRetryScore: () => void;
 }) {
   const metric = item.metrics?.stars
     ? `★ ${item.metrics.stars.toLocaleString()}`
@@ -175,15 +192,8 @@ function ItemCard({
         {sourceMark[item.source]}
       </div>
       <div className="source-item-main">
-        {item.source === 'YouTube' && item.embedUrl ? (
-          <iframe
-            className="source-item-embed"
-            src={item.embedUrl}
-            title={`YouTube: ${item.title}`}
-            loading="lazy"
-            allow="encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
+        {item.source === 'YouTube' ? (
+          <YouTubeVideo item={item} />
         ) : item.imageUrl ? (
           <img className="source-item-cover" src={item.imageUrl} alt="" loading="lazy" />
         ) : null}
@@ -199,6 +209,37 @@ function ItemCard({
           )}
         </div>
         <h3>{item.title}</h3>
+        <div className={`source-jev-score ${rating?.state === 'scored' ? 'is-scored' : ''}`}>
+          <Sparkles size={13} aria-hidden="true" />
+          <span>
+            {item.source === 'YouTube'
+              ? locale === 'zh'
+                ? 'Jev 相关度 · YouTube 搜索结果不评分'
+                : 'Jev relevance · YouTube search is not scored'
+              : rating?.state === 'scored'
+                ? `${locale === 'zh' ? 'Jev 相关度' : 'Jev relevance'} ${rating.rating.score.toFixed(1)} / 10`
+                : !hasInterests
+                  ? locale === 'zh'
+                    ? 'Jev 相关度 · 请先选择兴趣'
+                    : 'Jev relevance · Select interests'
+                  : rating?.state === 'unavailable'
+                    ? rating.reason === 'not_configured'
+                      ? locale === 'zh'
+                        ? 'Jev 相关度 · 未配置'
+                        : 'Jev relevance · Not configured'
+                      : locale === 'zh'
+                        ? 'Jev 相关度 · 暂不可用'
+                        : 'Jev relevance · Unavailable'
+                    : locale === 'zh'
+                      ? 'Jev 相关度 · 评分中…'
+                      : 'Jev relevance · Scoring…'}
+          </span>
+          {rating?.state === 'unavailable' && rating.reason === 'failed' && (
+            <button type="button" onClick={onRetryScore}>
+              {locale === 'zh' ? '重试' : 'Retry'}
+            </button>
+          )}
+        </div>
         <p>{item.summary}</p>
         <div className="source-item-bottom">
           <div className="source-tags">
@@ -245,6 +286,7 @@ export default function SourceBoards({
   t,
   savedResourceIds,
   onSaveResource,
+  onRelaxMatching,
 }: Props) {
   const [active, setActive] = useState<FeedSection>('social');
   const [selectedSource, setSelectedSource] = useState<LiveSource | null>(null);
@@ -260,6 +302,9 @@ export default function SourceBoards({
   const [youtubeKeyBusy, setYoutubeKeyBusy] = useState(false);
   const [youtubeKeyError, setYoutubeKeyError] = useState('');
   const [jevFallbackOpen, setJevFallbackOpen] = useState(false);
+  const [ratings, setRatings] = useState<Map<string, SourceRating>>(() => new Map());
+  const ratingsRef = useRef(ratings);
+  const [retryRevision, setRetryRevision] = useState(0);
 
   const loadSource = async (source: LiveSource, refresh = false) => {
     setLoadingSource(source);
@@ -275,12 +320,9 @@ export default function SourceBoards({
       const incoming = await readApiData<HarvestPayload>(response);
       setPayload((current) => mergeHarvestPayload(current, incoming));
       onHarvested?.(incoming);
-    } catch (error) {
+    } catch {
       setLoadError(
-        t(
-          `实时来源暂时不可用：${error instanceof Error ? error.message : String(error)}`,
-          `Live sources are temporarily unavailable: ${error instanceof Error ? error.message : String(error)}`,
-        ),
+        t('来源暂时不可用，请重试。', 'This source is unavailable right now. Try again.'),
       );
     } finally {
       setLoadingSource(null);
@@ -320,6 +362,92 @@ export default function SourceBoards({
             .includes(needle)),
     );
   }, [query, sectionItems, preferences]);
+  const visibleItems = filteredItems.slice(0, 24);
+  const goalTags = [...new Set(interestLabels.map((tag) => tag.trim()).filter(Boolean))].slice(
+    0,
+    12,
+  );
+  const goalKey = goalTags.join('\u0000');
+  const visibleRatingContext = visibleItems.map((item) => ratingKey(item, goalKey)).join('\u0002');
+
+  useEffect(() => {
+    if (!goalTags.length || !visibleItems.length) return;
+    const controller = new AbortController();
+    const missing = visibleItems.filter(
+      (item) => item.source !== 'YouTube' && !ratingsRef.current.has(ratingKey(item, goalKey)),
+    );
+    async function scoreVisibleItems() {
+      for (let offset = 0; offset < missing.length && !controller.signal.aborted; offset += 4) {
+        const batch = missing.slice(offset, offset + 4);
+        const results = await Promise.all(
+          batch.map(async (item): Promise<[string, SourceRating]> => {
+            const key = ratingKey(item, goalKey);
+            try {
+              const response = await fetch('/api/agent/v1/decisions/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  platform: 'feeder',
+                  contentTitle: item.title,
+                  goalTags,
+                  remainingVideoBudget: 1,
+                  remainingMinuteBudget: 1,
+                  provider: 'jev',
+                }),
+                signal: controller.signal,
+              });
+              if (response.status === 503)
+                return [key, { state: 'unavailable', reason: 'not_configured' }];
+              const { decision } = await readApiData<{
+                decision: {
+                  provider: string;
+                  relevanceScore: number | null;
+                  confidence: number | null;
+                  model?: string;
+                };
+              }>(response);
+              if (
+                decision.provider !== 'jev' ||
+                decision.relevanceScore === null ||
+                decision.confidence === null
+              )
+                throw new Error('Jev score unavailable');
+              return [
+                key,
+                {
+                  state: 'scored',
+                  rating: {
+                    score: decision.relevanceScore,
+                    confidence: decision.confidence,
+                    model: decision.model,
+                  },
+                },
+              ];
+            } catch {
+              return [key, { state: 'unavailable', reason: 'failed' }];
+            }
+          }),
+        );
+        if (controller.signal.aborted) break;
+        const next = new Map(ratingsRef.current);
+        for (const [key, rating] of results) next.set(key, rating);
+        ratingsRef.current = next;
+        setRatings(next);
+      }
+    }
+    void scoreVisibleItems();
+    return () => controller.abort();
+    // The serialized context changes only when visible titles, URLs, or interest tags change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleRatingContext, retryRevision]);
+
+  const retryScore = (item: HarvestItem) => {
+    const next = new Map(ratingsRef.current);
+    next.delete(ratingKey(item, goalKey));
+    ratingsRef.current = next;
+    setRatings(next);
+    setRetryRevision((value) => value + 1);
+  };
   const health = payload?.health.filter((item) => item.section === active) ?? [];
   const selectedHealth = health.find((item) => item.source === selectedSource);
   const activeMeta = sectionMeta.find((section) => section.id === active) ?? sectionMeta[0];
@@ -341,9 +469,38 @@ export default function SourceBoards({
       await readApiData<{ configured: boolean }>(response);
       setYoutubeApiKey('');
       await loadSource('YouTube', true);
-    } catch (error) {
+    } catch {
       setYoutubeKeyError(
-        error instanceof Error ? error.message : t('保存失败', 'Could not save key'),
+        t(
+          '无法配置 YouTube 搜索，请检查 key 后重试。',
+          'Could not configure YouTube search. Check the key and try again.',
+        ),
+      );
+    } finally {
+      setYoutubeKeyBusy(false);
+    }
+  };
+
+  const clearYouTube = async () => {
+    if (youtubeKeyBusy) return;
+    setYoutubeKeyBusy(true);
+    setYoutubeKeyError('');
+    try {
+      const response = await fetch('/api/harvest', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ source: 'YouTube', apiKey: '' }),
+      });
+      await readApiData<{ configured: boolean }>(response);
+      setYoutubeApiKey('');
+      await loadSource('YouTube', true);
+    } catch {
+      setYoutubeKeyError(
+        t(
+          '无法清除本机 YouTube key，请重试。',
+          'Could not clear the local YouTube key. Try again.',
+        ),
       );
     } finally {
       setYoutubeKeyBusy(false);
@@ -374,25 +531,25 @@ export default function SourceBoards({
       localStorage.setItem(SOCIAL_STORAGE, JSON.stringify(next));
       onSocialImport?.(result.item);
       setSocialUrl('');
-    } catch (error) {
-      setSocialError(error instanceof Error ? error.message : t('导入失败', 'Import failed'));
+    } catch {
+      setSocialError(
+        t(
+          '这条链接暂时无法导入，请确认它是公开帖子并重试。',
+          'This link could not be imported. Check that it is public and try again.',
+        ),
+      );
     } finally {
       setSocialBusy(false);
     }
   };
 
   return (
-    <div className="discovery-gallery source-boards">
-      <header className="source-hero">
-        <div>
-          <span className="source-hero-kicker">
-            <Sparkles size={13} /> LIVE PUBLIC-SOURCE WORKBENCH
-          </span>
-          <h1>{t('发现', 'Discover')}</h1>
-        </div>
-      </header>
-
-      <section className="source-section-grid" aria-label={t('内容板块', 'Content sections')}>
+    <div className="source-boards">
+      <section
+        className="source-section-grid"
+        role="tablist"
+        aria-label={t('内容板块', 'Content sections')}
+      >
         {sectionMeta.map((section) => {
           const Icon = section.icon;
           const count = (
@@ -406,6 +563,10 @@ export default function SourceBoards({
             <button
               key={section.id}
               className={`source-section-card source-section-${section.id} ${active === section.id ? 'active' : ''}`}
+              role="tab"
+              aria-selected={active === section.id}
+              aria-controls="source-board-panel"
+              tabIndex={active === section.id ? 0 : -1}
               onClick={() => {
                 setActive(section.id);
                 setSelectedSource(null);
@@ -414,7 +575,24 @@ export default function SourceBoards({
                 setYoutubeApiKey('');
                 setYoutubeKeyError('');
               }}
-              aria-pressed={active === section.id}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const current = sectionMeta.findIndex((entry) => entry.id === section.id);
+                const next =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? sectionMeta.length - 1
+                      : (current + (event.key === 'ArrowRight' ? 1 : -1) + sectionMeta.length) %
+                        sectionMeta.length;
+                const target =
+                  event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                    '[role="tab"]',
+                  )[next];
+                target?.focus();
+                target?.click();
+              }}
             >
               <span className="section-card-top">
                 <Icon size={20} />
@@ -431,7 +609,7 @@ export default function SourceBoards({
         })}
       </section>
 
-      <section className="source-board">
+      <section className="source-board" id="source-board-panel" role="tabpanel">
         <header className="source-board-heading">
           <div>
             <span>{activeMeta.eyebrow}</span>
@@ -449,21 +627,34 @@ export default function SourceBoards({
                 >
                   <Sparkles size={13} />
                   <span>Jev scoring</span>
-                  <small>{t('预留', 'reserved')}</small>
+                  <small>{t('标题评分', 'title scores')}</small>
                 </button>
               )}
               {selectedSource && !urlSources.has(selectedSource) && (
-                <button
-                  className="source-refresh"
-                  type="button"
-                  disabled={loadingSource !== null || youtubeKeyBusy}
-                  onClick={() => void loadSource(selectedSource, true)}
-                >
-                  <RefreshCw size={15} className={loadingSource ? 'spinning' : ''} />
-                  {loadingSource
-                    ? t('正在刷新', 'Refreshing')
-                    : t('刷新该来源', 'Refresh this source')}
-                </button>
+                <>
+                  <button
+                    className="source-refresh"
+                    type="button"
+                    disabled={loadingSource !== null || youtubeKeyBusy}
+                    onClick={() => void loadSource(selectedSource, true)}
+                  >
+                    <RefreshCw size={15} className={loadingSource ? 'spinning' : ''} />
+                    {loadingSource
+                      ? t('正在刷新', 'Refreshing')
+                      : t('刷新该来源', 'Refresh this source')}
+                  </button>
+                  {selectedSource === 'YouTube' &&
+                    selectedHealth?.state !== 'configuration_required' && (
+                      <button
+                        className="source-refresh"
+                        type="button"
+                        disabled={loadingSource !== null || youtubeKeyBusy}
+                        onClick={() => void clearYouTube()}
+                      >
+                        {t('清除本机 key', 'Clear local key')}
+                      </button>
+                    )}
+                </>
               )}
             </div>
           )}
@@ -485,6 +676,9 @@ export default function SourceBoards({
                 <span className="source-health-copy">
                   <strong>{source}</strong>
                   <small>{item ? healthText(item, locale) : sourcePrompt[source]}</small>
+                  <span className="source-health-action">
+                    {urlSources.has(source) ? 'Import URL' : 'Click to fetch'}
+                  </span>
                 </span>
                 {loadingSource === source ? (
                   <LoaderCircle size={15} className="spinning" />
@@ -508,16 +702,16 @@ export default function SourceBoards({
           >
             <Sparkles size={16} />
             <div>
-              <span>{t('预留交接点', 'RESERVED HANDOFF')}</span>
+              <span>{t('评分状态', 'SCORING STATUS')}</span>
               <strong id="jev-fallback-title">
                 {crawlerNeedsAttention
                   ? t('检测到采集异常', 'A crawler needs attention')
-                  : t('当前为待命状态', 'Standing by')}
+                  : t('Jev 正在为结果评分', 'Jev scores displayed results')}
               </strong>
               <p>
                 {t(
-                  '程序负责采集标题，Jev 只根据用户标签评估 1–10 分相关度，再由程序按分数选择操作。采集异常需要修复采集程序；此处尚未连接评分和真实播放。',
-                  'The program collects titles. Jev scores their relevance to your tags from 1–10, then program rules select an action. Collection failures need a crawler fix. Scoring and real playback are not connected here yet.',
+                  '公开结果标题会按所选兴趣请求 Jev 评估 1–10 分相关度；YouTube API 搜索结果不参与评分。评分失败会明确显示，采集异常仍需修复采集程序；此处不执行真实播放。',
+                  'Jev rates displayed public result titles against your interests from 1–10. YouTube API search results are excluded. Failed scores are shown explicitly. Collection failures still need a crawler fix; this does not start playback.',
                 )}
               </p>
             </div>
@@ -610,13 +804,16 @@ export default function SourceBoards({
           </div>
         ) : filteredItems.length ? (
           <div className="source-items">
-            {filteredItems.slice(0, 24).map((item) => (
+            {visibleItems.map((item) => (
               <ItemCard
                 key={item.id}
                 item={item}
                 locale={locale}
                 saved={savedResourceIds.includes(item.id)}
                 onSave={() => onSaveResource(item)}
+                rating={ratings.get(ratingKey(item, goalKey))}
+                hasInterests={goalTags.length > 0}
+                onRetryScore={() => retryScore(item)}
               />
             ))}
           </div>
@@ -647,7 +844,6 @@ export default function SourceBoards({
                         : t('该来源暂时没有内容', 'No items from this source yet')}
             </h3>
             {selectedSource === 'YouTube' &&
-              !query &&
               (selectedHealth?.state === 'configuration_required' ||
                 selectedHealth?.state === 'error') && (
                 <form className="source-key-form" onSubmit={configureYouTube}>
@@ -679,10 +875,17 @@ export default function SourceBoards({
                   </div>
                   <p>
                     {t(
-                      '仅在本机服务内存中保存，重启后失效。',
-                      'Saved in this local server until restart.',
+                      '只存于本机服务内存；搜索时会发送给 Google 官方 API，重启后失效。',
+                      'Kept in local server memory until restart and sent to the official Google API for searches.',
                     )}
                   </p>
+                  <a
+                    href="https://developers.google.com/youtube/v3/getting-started"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {t('如何获取 API key', 'How to get an API key')}
+                  </a>
                   {youtubeKeyError && (
                     <p className="source-key-error" role="alert">
                       {youtubeKeyError}
@@ -690,11 +893,12 @@ export default function SourceBoards({
                   )}
                 </form>
               )}
+            {query && <button onClick={() => setQuery('')}>Clear search</button>}
             {(preferences.onlySelectedTags ||
               preferences.requireAllSelectedTags ||
               preferences.excludeUnselectedTags) &&
               sectionItems.length > 0 && (
-                <p>Try another section or adjust content matching in For you.</p>
+                <button onClick={onRelaxMatching}>Relax matching rules</button>
               )}
           </div>
         )}

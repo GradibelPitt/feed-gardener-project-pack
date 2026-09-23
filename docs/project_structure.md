@@ -49,6 +49,8 @@ feed_gardener_project_pack/
     │   │           └── route.ts
     │   ├── instructions/
     │   │   └── page.tsx
+    │   ├── error.module.css
+    │   ├── error.tsx
     │   ├── globals.css
     │   ├── icon.svg
     │   ├── layout.tsx
@@ -58,18 +60,17 @@ feed_gardener_project_pack/
     │   ├── main.ts
     │   └── state.ts
     ├── components/
-    │   ├── DiscoveryGallery.tsx
     │   ├── FeederWorkspace.module.css
     │   ├── FeederWorkspace.tsx
-    │   ├── garden.css
-    │   ├── Garden.tsx
     │   ├── Onboarding.tsx
     │   ├── ResourceLibrary.tsx
     │   ├── SelectedTagsToggle.tsx
     │   ├── SourceBoards.tsx
     │   ├── WorkspaceSidebar.tsx
     │   ├── youtube-connection.css
-    │   └── YouTubeConnection.tsx
+    │   ├── youtube-video.css
+    │   ├── YouTubeConnection.tsx
+    │   └── YouTubeVideo.tsx
     ├── docs/
     │   ├── feeder_product_goal.md
     │   ├── interface_contract.md

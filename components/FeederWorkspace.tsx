@@ -17,6 +17,7 @@ import { resourceUrlKey, type ResourceRecord } from '@/lib/resources';
 import { mergeHarvestPayload } from '@/lib/crawler/merge';
 import { simulateFeed, type JevRating } from '@/lib/feed-simulator';
 import SourceBoards, { readSocialImports } from './SourceBoards';
+import YouTubeVideo from './YouTubeVideo';
 import styles from './FeederWorkspace.module.css';
 
 type WorkspacePage = 'discover' | 'garden' | 'saved';
@@ -88,7 +89,6 @@ export default function FeederWorkspace({
   const [view, setView] = useState<'feed' | 'sources'>('feed');
   const [query, setQuery] = useState('');
   const [displayCount, setDisplayCount] = useState(20);
-  const [lastDismissed, setLastDismissed] = useState<FeederEvent | null>(null);
   const [ratingRevision, setRatingRevision] = useState(0);
   const [scoring, setScoring] = useState(false);
   const [scoringError, setScoringError] = useState('');
@@ -111,8 +111,8 @@ export default function FeederWorkspace({
       });
       setPayload(await readApiData<HarvestPayload>(response));
       setSocialImports(readSocialImports());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+    } catch {
+      setError('Public sources could not be loaded. Try again.');
     } finally {
       setLoading(false);
       setLoaded(true);
@@ -127,6 +127,24 @@ export default function FeederWorkspace({
     () => new Set(resources.map((item) => resourceUrlKey(item.url))),
     [resources],
   );
+  // Target average and legacy Agent settings do not affect candidate eligibility or ranking.
+  const candidatePreferences = useMemo(
+    () => preferences,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      preferences.tags,
+      preferences.domains,
+      preferences.customTags,
+      preferences.tagJev,
+      preferences.blockedTags,
+      preferences.blockedSources,
+      preferences.onlySelectedTags,
+      preferences.requireAllSelectedTags,
+      preferences.excludeUnselectedTags,
+      preferences.relatedDomains,
+      preferences.exploration,
+    ],
+  );
   const candidates = useMemo(
     () =>
       rankHarvestCandidates(
@@ -136,13 +154,20 @@ export default function FeederWorkspace({
           ...(payload?.sections.opensource ?? []),
           ...socialImports,
         ],
-        preferences,
+        candidatePreferences,
         events,
         { limit: 60, pool: true },
       ),
-    [payload, socialImports, preferences, events],
+    [payload, socialImports, candidatePreferences, events],
   );
+  const publicCandidateCount =
+    (payload?.sections.social ?? []).filter((item) => item.source !== 'YouTube').length +
+    (payload?.sections.academic ?? []).length +
+    (payload?.sections.opensource ?? []).length +
+    socialImports.length;
   const targetAverage = preferences.targetJevAverage ?? 8;
+  const targetAverageRef = useRef(targetAverage);
+  targetAverageRef.current = targetAverage;
   const goalTags = useMemo(
     () =>
       [
@@ -201,6 +226,11 @@ export default function FeederWorkspace({
                 }),
                 signal: controller.signal,
               });
+              if (response.status === 503) {
+                setScoringError('Jev is not configured on this server.');
+                controller.abort();
+                return null;
+              }
               const data = await readApiData<{
                 decision: {
                   relevanceScore: number | null;
@@ -224,13 +254,9 @@ export default function FeederWorkspace({
                   model: decision.model,
                 },
               };
-            } catch (error) {
+            } catch {
               if (controller.signal.aborted) return null;
               failures += 1;
-              if (error instanceof Error && error.message.includes('TypeSafe API key')) {
-                setScoringError('Jev is not configured on this server.');
-                controller.abort();
-              }
               return null;
             }
           }),
@@ -238,7 +264,7 @@ export default function FeederWorkspace({
         if (cancelled || controller.signal.aborted) break;
         for (const result of results) if (result) ratingsRef.current.set(result.key, result.rating);
         setRatingRevision((value) => value + 1);
-        const next = simulateFeed(candidates, ratingsRef.current, targetAverage);
+        const next = simulateFeed(candidates, ratingsRef.current, targetAverageRef.current);
         if (next.targetMet && next.items.length >= 12 && next.ratedCount >= 24) break;
       }
       if (!cancelled) {
@@ -255,7 +281,7 @@ export default function FeederWorkspace({
     };
     // goalKey represents the selected tags and candidates represents the current eligible pool.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, page, view, candidates, ratingContext, targetAverage]);
+  }, [loaded, page, view, ratingContext]);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle
@@ -273,6 +299,26 @@ export default function FeederWorkspace({
       : simulation.items;
   }, [simulation, query]);
   const shown = visible.slice(0, displayCount);
+  const dismissed = events
+    .filter((event) => event.signal === 'hide' || event.signal === 'not_interested')
+    .slice(-5)
+    .reverse();
+  const scoringState = scoring
+    ? 'Scoring'
+    : !loaded
+      ? 'Fetch candidates'
+      : candidates.length < 5
+        ? 'Candidates insufficient'
+        : simulation.targetMet
+          ? 'Target reached'
+          : scoringError && simulation.ratedCount === 0
+            ? 'Jev unavailable'
+            : scoringDone
+              ? 'Target not reached'
+              : 'Waiting for scores';
+  const ratedPercent = candidates.length
+    ? Math.round((simulation.ratedCount / candidates.length) * 100)
+    : 0;
   const selectedTags = catalog.filter((tag) => preferences.tags.includes(tag.id));
   const relatedTags = catalog
     .filter(
@@ -294,7 +340,6 @@ export default function FeederWorkspace({
       at: new Date().toISOString(),
     };
     onRecordEvent(event);
-    if (signal === 'hide' || signal === 'not_interested') setLastDismissed(event);
     return event;
   }
 
@@ -585,13 +630,18 @@ export default function FeederWorkspace({
           </fieldset>
           <p className={styles.matchHint}>
             Uses available topic tags. Explicit exclusions always apply.
+            {loaded &&
+              ` ${candidates.length} of ${publicCandidateCount} fetched items are in this prioritized scoring batch (maximum 60).`}
           </p>
         </section>
       )}
       {view === 'sources' ? (
         <SourceBoards
           locale={locale}
-          interestLabels={selectedTags.map((tag) => tag.labelEn)}
+          interestLabels={[
+            ...selectedTags.map((tag) => tag.labelEn),
+            ...preferences.customTags.map((tag) => tag.labelEn),
+          ]}
           preferences={preferences}
           initialPayload={payload}
           onHarvested={(incoming) => {
@@ -608,15 +658,28 @@ export default function FeederWorkspace({
           t={(zh, en) => t(zh, en, locale)}
           savedResourceIds={resources.map((resource) => resource.id)}
           onSaveResource={save}
+          onRelaxMatching={() => {
+            onOnlySelectedTagsChange(false);
+            onInterestRuleChange('requireAllSelectedTags', false);
+            onInterestRuleChange('excludeUnselectedTags', false);
+          }}
         />
       ) : (
         <>
-          <div className={styles.feedControls}>
-            <label className={styles.targetControl}>
-              <span className={styles.targetHeading}>
-                <span>Jev target average</span>
-                <strong>{targetAverage}</strong>
-              </span>
+          <section className={styles.scorePanel} aria-label="Jev feed status">
+            <div className={styles.scorePanelTop}>
+              <div>
+                <span className={styles.eyebrow}>YOUR FEED TARGET</span>
+                <h2>Jev average {simulation.average?.toFixed(2) ?? '—'} / 10</h2>
+              </div>
+              <strong className={styles.scoreState}>{scoringState}</strong>
+            </div>
+            <p>
+              Target {targetAverage} is the minimum average title relevance of displayed items.
+              Lower values allow more nearby topics; explicit exclusions still apply.
+            </p>
+            <label className={styles.scoreSlider}>
+              <span>Choose target average: {targetAverage}</span>
               <input
                 type="range"
                 aria-label="Jev target average"
@@ -627,10 +690,24 @@ export default function FeederWorkspace({
                 onChange={(event) => onTargetJevAverageChange(Number(event.target.value))}
               />
               <span className={styles.rangeEndpoints}>
-                <span>1 · Looser</span>
-                <span>10 · Stricter</span>
+                <span>1 · More variety</span>
+                <span>10 · More focused</span>
               </span>
             </label>
+            <div className={styles.scoreProgressText}>
+              {simulation.ratedCount} of {candidates.length} candidates scored ({ratedPercent}%) ·{' '}
+              {simulation.items.length} shown
+              {simulation.lowConfidenceCount > 0 &&
+                ` · ${simulation.lowConfidenceCount} low confidence excluded`}
+            </div>
+            <progress
+              className={styles.scoreProgress}
+              max={Math.max(1, candidates.length)}
+              value={simulation.ratedCount}
+              aria-label="Jev scoring progress"
+            />
+          </section>
+          <div className={styles.feedControls}>
             <label>
               <Compass size={17} />
               <input
@@ -640,23 +717,13 @@ export default function FeederWorkspace({
                 aria-label="Filter this feed"
               />
             </label>
-            <span>
-              {simulation.average === null
-                ? 'No Jev average yet'
-                : `Jev average ${simulation.average.toFixed(2)} / 10`}
-              {' · '}target {targetAverage} · {simulation.ratedCount}/{candidates.length} rated
-            </span>
           </div>
           <div className={styles.simulationStatus} role="status">
-            {scoring
-              ? 'Iterating through public candidates with Jev…'
-              : simulation.targetMet
-                ? `Target reached with ${simulation.items.length} scored items.`
-                : scoringDone
-                  ? `Target not reached with the available scored candidates (${simulation.items.length} shown).`
-                  : 'Waiting for candidate scores.'}
-            {simulation.lowConfidenceCount > 0 &&
-              ` ${simulation.lowConfidenceCount} low-confidence ratings excluded.`}
+            {scoringState}
+            {scoringDone &&
+              !simulation.targetMet &&
+              candidates.length >= 5 &&
+              ': available confident scores cannot meet this target.'}
           </div>
           {scoringError && (
             <div className={styles.warning} role="alert">
@@ -665,7 +732,7 @@ export default function FeederWorkspace({
           )}
           {error && (
             <div className={styles.warning} role="alert">
-              Sources unavailable: {error}. Saved links remain available.
+              {error} Saved links remain available.
             </div>
           )}
           {payload?.warnings.length ? (
@@ -673,21 +740,28 @@ export default function FeederWorkspace({
               Some sources could not refresh; other sources are still shown.
             </div>
           ) : null}
-          {lastDismissed && (
+          {dismissed.length > 0 && (
             <div className={styles.undo}>
-              Item removed from this feed.
-              <button
-                onClick={() => {
-                  onUndoEvent(lastDismissed.id);
-                  setLastDismissed(null);
-                }}
-              >
-                <RotateCcw size={14} /> Undo
-              </button>
+              <span>Recently hidden</span>
+              <div className={styles.undoItems}>
+                {dismissed.map((event) => (
+                  <button key={event.id} onClick={() => onUndoEvent(event.id)}>
+                    <RotateCcw size={14} /> Restore {new URL(event.itemKey).hostname}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {loading && !payload ? <div className={styles.empty}>Loading public sources…</div> : null}
-          {!loading && !loaded && (
+          {!loading && !loaded && !goalTags.length && (
+            <div className={styles.empty}>
+              Choose interests to score a personal feed, or browse public items in Sources.
+              <button className={styles.secondary} onClick={onEditInterests}>
+                Choose interests
+              </button>
+            </div>
+          )}
+          {!loading && !loaded && goalTags.length > 0 && (
             <div className={styles.empty}>
               Fetch public sources above, or choose one in Sources to begin.
             </div>
@@ -701,6 +775,12 @@ export default function FeederWorkspace({
           {!loading && loaded && candidates.length > 0 && !scoring && visible.length === 0 ? (
             <div className={styles.empty}>No confident Jev scores are available for this feed.</div>
           ) : null}
+          {scoring && shown.length === 0 && (
+            <div className={styles.scoringPlaceholder} aria-live="polite">
+              <span className={styles.skeleton} />
+              <span>Scoring candidate titles with Jev…</span>
+            </div>
+          )}
           <div className={styles.cards}>
             {shown.map(({ candidate, rating }) => {
               const { item } = candidate;
@@ -731,8 +811,13 @@ export default function FeederWorkspace({
                     ))}
                     {candidate.exploratory && <span>Explore</span>}
                   </div>
+                  <div className={styles.ratingBadge}>
+                    <strong>Jev {rating.score.toFixed(1)} / 10</strong>
+                    <span>Confidence {Math.round(rating.confidence * 100)}%</span>
+                    <progress max="1" value={rating.confidence} aria-label="Jev confidence" />
+                  </div>
                   <details className={styles.why}>
-                    <summary>Jev {rating.score.toFixed(1)} / 10 · Why this is here</summary>
+                    <summary>Why this is here</summary>
                     <ul>
                       {candidate.reasons.map((reason) => (
                         <li key={reason}>{reason}</li>
@@ -755,15 +840,29 @@ export default function FeederWorkspace({
                     <button onClick={() => save(item)} disabled={saved}>
                       <Bookmark size={15} /> {saved ? 'Saved' : 'Save for later'}
                     </button>
-                    <button onClick={() => record(item, 'hide')} aria-label={`Hide ${item.title}`}>
-                      Hide
-                    </button>
-                    <button
-                      onClick={() => record(item, 'not_interested')}
-                      aria-label={`Not interested in ${item.title}`}
-                    >
-                      Not interested
-                    </button>
+                    <details className={styles.moreActions}>
+                      <summary>More actions</summary>
+                      <div>
+                        <button
+                          onClick={(event) => {
+                            record(item, 'hide');
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                          }}
+                          aria-label={`Hide ${item.title}`}
+                        >
+                          Hide
+                        </button>
+                        <button
+                          onClick={(event) => {
+                            record(item, 'not_interested');
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                          }}
+                          aria-label={`Not interested in ${item.title}`}
+                        >
+                          Not interested
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </article>
               );
@@ -790,18 +889,7 @@ export default function FeederWorkspace({
                   .slice(0, 6)
                   .map((item) => (
                     <article className={styles.card} key={item.id}>
-                      {item.embedUrl ? (
-                        <iframe
-                          className={styles.cover}
-                          src={item.embedUrl}
-                          title={`YouTube: ${item.title}`}
-                          loading="lazy"
-                          allow="encrypted-media; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : item.imageUrl ? (
-                        <img className={styles.cover} src={item.imageUrl} alt="" loading="lazy" />
-                      ) : null}
+                      <YouTubeVideo item={item} />
                       <div className={styles.cardMeta}>YouTube · {item.author}</div>
                       <h2>{item.title}</h2>
                       <div className={styles.actions}>

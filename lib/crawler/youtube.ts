@@ -25,11 +25,15 @@ function youtubeSearchApiKey(): string {
   return searchRuntime().apiKey ?? process.env.YOUTUBE_API_KEY?.trim() ?? '';
 }
 
-async function fetchYouTubeEndpoint(url: URL): Promise<Response> {
+async function fetchYouTubeEndpoint(url: URL, apiKey: string): Promise<Response> {
   try {
-    return await fetchWithTimeout(url.toString(), {}, 12_000);
+    return await fetchWithTimeout(
+      url.toString(),
+      { headers: { 'x-goog-api-key': apiKey } },
+      12_000,
+    );
   } catch {
-    // Fetch errors can contain request URLs; never pass a URL with the key into health warnings.
+    // Never pass a transport error with request details into health warnings.
     throw new Error('YouTube request could not be completed');
   }
 }
@@ -78,8 +82,7 @@ export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]>
   endpoint.searchParams.set('videoEmbeddable', 'true');
   endpoint.searchParams.set('maxResults', '20');
   endpoint.searchParams.set('q', terms.join(' '));
-  endpoint.searchParams.set('key', apiKey);
-  const response = await fetchYouTubeEndpoint(endpoint);
+  const response = await fetchYouTubeEndpoint(endpoint, apiKey);
   if (!response.ok) throw new Error(`YouTube search returned HTTP ${response.status}`);
   const payload = (await response.json()) as { items?: SearchEntry[] };
   if (!Array.isArray(payload.items)) throw new Error('YouTube search returned invalid data');
@@ -90,8 +93,7 @@ export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]>
   const statusEndpoint = new URL('https://www.googleapis.com/youtube/v3/videos');
   statusEndpoint.searchParams.set('part', 'status');
   statusEndpoint.searchParams.set('id', videoIds.join(','));
-  statusEndpoint.searchParams.set('key', apiKey);
-  const statusResponse = await fetchYouTubeEndpoint(statusEndpoint);
+  const statusResponse = await fetchYouTubeEndpoint(statusEndpoint, apiKey);
   if (!statusResponse.ok)
     throw new Error(`YouTube video status returned HTTP ${statusResponse.status}`);
   const statusPayload = (await statusResponse.json()) as {

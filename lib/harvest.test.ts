@@ -88,10 +88,11 @@ test('entering a YouTube key enables search and invalidates the unconfigured sna
   const requests: string[] = [];
   delete process.env.YOUTUBE_API_KEY;
   setYouTubeSearchApiKey(null);
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     requests.push(url.pathname);
-    assert.equal(url.searchParams.get('key'), fakeKey);
+    assert.equal(url.searchParams.has('key'), false);
+    assert.equal(new Headers(init?.headers).get('x-goog-api-key'), fakeKey);
     return Response.json({ items: [] });
   };
   try {
@@ -115,6 +116,25 @@ test('entering a YouTube key enables search and invalidates the unconfigured sna
   } finally {
     setYouTubeSearchApiKey(null);
     globalThis.fetch = originalFetch;
+    if (originalEnvKey === undefined) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = originalEnvKey;
+  }
+});
+
+test('clearing a session YouTube key disables search until restart even with an environment key', async () => {
+  const originalEnvKey = process.env.YOUTUBE_API_KEY;
+  process.env.YOUTUBE_API_KEY = `AIza${'b'.repeat(35)}`;
+  try {
+    setYouTubeSearchApiKey(`AIza${'a'.repeat(35)}`);
+    assert.equal(youtubeSearchConfigured(), true);
+    const previousRevision = youtubeSearchKeyRevision();
+    setYouTubeSearchApiKey('');
+    assert.equal(youtubeSearchConfigured(), false);
+    assert.equal(youtubeSearchKeyRevision(), previousRevision + 1);
+    const payload = await harvestPublicSources(true, [], 'YouTube');
+    assert.equal(payload.health[0]?.state, 'configuration_required');
+  } finally {
+    setYouTubeSearchApiKey(null);
     if (originalEnvKey === undefined) delete process.env.YOUTUBE_API_KEY;
     else process.env.YOUTUBE_API_KEY = originalEnvKey;
   }

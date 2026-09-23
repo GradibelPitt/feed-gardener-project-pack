@@ -3,7 +3,6 @@
 import {
   ArrowUpRight,
   Bookmark,
-  ChevronDown,
   CircleHelp,
   Compass,
   Layers3,
@@ -27,10 +26,8 @@ type Props = {
   mobileOpen: boolean;
   resourceCount: number;
   savedCount: number;
-  interests: Array<{ id: string; label: string; labelEn: string }>;
   onNavigate: (page: WorkspacePage) => void;
   onCloseMobile: () => void;
-  onEditInterests: () => void;
 };
 
 export default function WorkspaceSidebar({
@@ -39,10 +36,8 @@ export default function WorkspaceSidebar({
   mobileOpen,
   resourceCount,
   savedCount,
-  interests,
   onNavigate,
   onCloseMobile,
-  onEditInterests,
 }: Props) {
   return (
     <>
@@ -66,14 +61,6 @@ export default function WorkspaceSidebar({
             <small>YOUR INTERESTS. YOUR FEED.</small>
           </span>
         </button>
-        <div className="workspace-switch">
-          <span className="workspace-avatar">M</span>
-          <div>
-            <strong>{t('我的空间', 'Personal space')}</strong>
-            <small>{t('个人工作台', 'Your little corner')}</small>
-          </div>
-          <ChevronDown size={14} />
-        </div>
         <span className="nav-label">{t('你的工作台', 'WORKSPACE')}</span>
         <nav aria-label={t('主页面', 'Main pages')}>
           {WORKSPACE_TABS.map((item) => (
@@ -113,14 +100,7 @@ export default function WorkspaceSidebar({
             {t('使用说明', 'Instructions')}
             <ArrowUpRight size={14} className="push-right" />
           </a>
-          <div className="sidebar-footer">
-            <span className="profile-avatar">M</span>
-            <div>
-              <strong>{t('探索者', 'The curious mind')}</strong>
-              <small>{t('本地工作空间', 'Local workspace')}</small>
-            </div>
-            <span className="demo-mini">LOCAL</span>
-          </div>
+          <div className="sidebar-footer">Feeder · {t('本地工作空间', 'Local workspace')}</div>
         </div>
       </aside>
     </>

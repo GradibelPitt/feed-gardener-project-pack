@@ -13,6 +13,7 @@ const skippedDirectories = new Set([
   '.turbo',
   '.pnpm-store',
   '.cache',
+  '.data',
   '.idea',
   'node_modules',
   'out',

@@ -132,7 +132,7 @@ function RevealCard({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
           setReveal({
-            delay: performance.now() - mountedAt < 500 ? 900 + (index % 8) * 85 : (index % 4) * 75,
+            delay: performance.now() - mountedAt < 500 ? 40 + (index % 6) * 35 : (index % 4) * 30,
           });
           observer.disconnect();
         }
@@ -350,6 +350,12 @@ export default function Onboarding({
             feed<i>gardener</i>
           </span>
         </div>
+        <span
+          className="onboarding-step-indicator"
+          aria-label={`Step ${step === 'intro' ? 1 : step === 'explore' ? 2 : 3} of 3`}
+        >
+          {step === 'intro' ? '1' : step === 'explore' ? '2' : '3'} / 3
+        </span>
       </header>
 
       <div
@@ -558,7 +564,7 @@ export default function Onboarding({
                                       {
                                         '--card-hue':
                                           activeCategory.hue + index * 22 + tagIndex * 3,
-                                        '--topic-delay': `${320 + tagIndex * 200}ms`,
+                                        '--topic-delay': `${30 + tagIndex * 25}ms`,
                                       } as CSSProperties
                                     }
                                   >
@@ -695,10 +701,24 @@ export default function Onboarding({
           </button>
           <button
             className="onboarding-primary"
-            disabled={leaving || (exploring && selected.length === 0)}
-            onClick={() => navigate(() => (exploring ? onStepChange('exclude') : onComplete()))}
+            disabled={leaving}
+            onClick={() =>
+              navigate(() =>
+                exploring
+                  ? selected.length
+                    ? onStepChange('exclude')
+                    : onComplete()
+                  : onComplete(),
+              )
+            }
           >
-            {exploring ? 'Next: less of this' : selected.length ? 'Enter my feed' : 'Skip & enter'}
+            {exploring
+              ? selected.length
+                ? 'Next: less of this'
+                : 'Explore sources first'
+              : selected.length
+                ? 'Enter my feed'
+                : 'Skip & enter'}
             <ArrowRight size={17} />
           </button>
         </footer>
