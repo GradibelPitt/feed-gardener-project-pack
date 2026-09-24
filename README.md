@@ -44,33 +44,37 @@ The core local experience works without an account or database. Optional Jev, Yo
 
 ## Illustrated walkthrough: from tags to a fetched feed
 
-The screenshots below come from a local run on September 23, 2026. They show one reproducible path through the interface. Public-source results and Jev scores can change between runs; the counts below describe this run only. A fresh browser profile opens the three-step introduction. If you already have local preferences, use **Manage interests** from Discover to edit the same tags instead.
+These screenshots record one local run on September 23, 2026. Follow the steps in order to understand what each choice changes and what to look for before continuing. Public items and Jev scores can change between runs, so the numbers are an example rather than a fixed expected result. The three-screen introduction appears for a new local browser profile. If you already completed it, open **Discover → Manage interests** to edit your tags and continue at step 5.
 
-1. **Open the app.** Run `pnpm dev`, visit `http://localhost:3000`, and choose **Let's find your world**. This introduces the local feed setup.
+1. **Start the local app and enter setup.** Run `pnpm dev` in this repository, then visit `http://localhost:3000`. On a new profile, the welcome screen explains that you are building your own feed. Click **Let's find your world** to open the interest picker. This button only advances setup: it does not select tags or fetch any content.
 
    ![First-run welcome screen](docs/images/discovery-walkthrough/01-welcome.jpg)
 
-2. **Choose an interest area.** The world picker lists broad areas. Open **Technology**; it reveals narrower groups such as **AI infrastructure** and **Developer tools**.
+2. **Find the right interest area.** The world picker groups topics under broad areas such as Technology, Music, and Sports. Click **Technology** to reveal narrower groups, including **AI infrastructure** and **Developer tools**. Opening an area is navigation only; it does not select every topic in that area. Use the search field if the area you want is not visible.
 
    <img src="docs/images/discovery-walkthrough/02-choose-world.jpg" alt="Choose a world screen with Technology among the available areas" width="350"> <img src="docs/images/discovery-walkthrough/03-technology-groups.jpg" alt="Technology interest groups" width="350">
 
-3. **Select specific tags.** Expand **AI infrastructure**, select **Local inference** and **Agents**, and confirm that the footer says **2 interests picked**. These tags become the feed's selected interests. Continue with **Next: less of this**.
+3. **Pick the topics that should guide the feed.** Expand **AI infrastructure** and select **Local inference** and **Agents** individually. A check mark appears on each selected card, and the footer changes to **2 interests picked**. The group-level **Select all** control would pick every topic in the group, which is broader than this example. These two selected tags become your saved interests and later help Feeder request and match public items. Click **Next: less of this** when the count and check marks are correct.
 
    ![Local inference and Agents selected](docs/images/discovery-walkthrough/04-tags-selected.jpg)
 
-4. **Set an exclusion.** The last onboarding screen is optional. For this run, search for “Gaming,” select the **Game reviews** topic, and choose **Enter my feed**. The selected interests and the exclusion are different settings: an excluded topic remains a hard boundary even when an item otherwise matches an interest.
+4. **Exclude an unwanted topic.** This screen is optional and has the opposite purpose from step 3: it blocks matching content. Type **Gaming** in the search box to find related topics, then select **Game reviews**. Confirm that the excluded-topic count in the footer changes to **1**, and click **Enter my feed**. Feeder saves the wanted and blocked tags together; it prevents the same tag from being both. An item tagged Game reviews is excluded even if it also matches Agents or Local inference. Skipping this screen would save no blocked topic.
 
    <img src="docs/images/discovery-walkthrough/05-exclusion-step.jpg" alt="Optional exclusion search" width="350"> <img src="docs/images/discovery-walkthrough/06-exclusion-selected.jpg" alt="Game reviews excluded" width="350">
 
-5. **Inspect Discovery before changing its controls.** The **For you** view shows the chosen tags. Before fetching, the Jev average is blank and the feed prompts you to fetch public sources.
+5. **Check the starting state in Discovery.** You arrive on **Discover → For you**. The **Your interests** panel should show AI infrastructure with the **Local inference** and **Agents** chips. **Manage interests** reopens the formal editor if you need to change them. The blank Jev average, **0 of 0 candidates scored**, and prompt to fetch mean no public candidates have been loaded in this view yet; a blank score here is not a scoring failure. Save this state so the effect of fetching is visible later.
 
    ![Discovery before tuning](docs/images/discovery-walkthrough/07-before-configuration.jpg)
 
-6. **Tune the feed, then capture the before state.** Turn on **Include any selected topic** and set **Choose target average** to **7**. Leave **Include all selected topics** and **Exclude unselected topics** off for this example. The first control accepts an item matching either selected topic; the target is the minimum average title-relevance score requested for displayed items. The screenshot still shows **0 of 0 candidates scored** because no fetch has started.
+6. **Set matching rules and the Jev target.** Under **Content matching**, turn on **Include any selected topic**. With the tags from step 3, an item can pass if its available topic labels match Local inference **or** Agents. This control starts unchecked in this run because we added a blocked topic during setup. Leave the other controls off: **Include all selected topics** would require both selected tags on the same item; **Exclude unselected topics** would reject an item carrying any recognized topic you did not select. These switches can be combined, but stricter combinations can leave fewer or no matches. The Game reviews exclusion applies regardless of the switches.
+
+   Next, move **Choose target average** from its default of **8** to **7**. This 1–10 control asks Feeder to assemble displayed items whose **average** Jev title-relevance score reaches at least 7; a single item can score below 7. A lower target can admit more nearby topics, while a higher target is more selective. Check the screenshot: **Include any selected topic** is checked, the target reads **7**, and the page still says **0 of 0 candidates scored**. Changing settings alone does not fetch items.
 
    ![Configured Discovery before fetching public sources](docs/images/discovery-walkthrough/08-before-harvest.jpg)
 
-7. **Fetch and compare.** Click **Fetch public sources** and wait for the button to become **Refresh sources** and for scoring to finish. In this run the interface reported **103 fetched items**, **30** in the prioritized scoring batch, **30 of 30 scored**, **8 shown**, and **22 low-confidence results excluded**. The displayed feed's Jev average was **8.16/10**, so the target of **7** was reached. The full after screenshot includes the resulting cards; the closer view makes the counters readable.
+7. **Fetch public candidates and compare the result.** Click **Fetch public sources**. Feeder uses the selected topic labels as search hints for its available public sources, then normalizes, deduplicates, and applies your exclusions and matching rules. The button temporarily reads **Fetching…**. Wait until it reads **Refresh sources** and the Jev progress indicator finishes; otherwise you may be looking at an incomplete batch. This action reads public metadata into your local Feeder view and does not act on accounts at those source platforms. If a source fails, the page may show a warning while retaining items from sources that succeeded.
+
+   Compare the screenshots below. In this run, **103 fetched items** was the broader public pool. After the selected-topic matching and prioritization, **30** were in the scoring batch. Jev returned scores for **30 of 30**; **22** had confidence below the feed's 70% threshold and were excluded from display. That left **8 shown**. Their average was **8.16/10**, so the page reported **Target reached** for the target of **7**. The average describes the eight displayed cards, not all 103 fetched items. Your counts may differ as public sources change.
 
    | Before fetch | After fetch |
    | --- | --- |
@@ -78,11 +82,11 @@ The screenshots below come from a local run on September 23, 2026. They show one
 
    ![After fetch: score and candidate counters](docs/images/discovery-walkthrough/10-after-harvest-summary.jpg)
 
-8. **Inspect the result.** Each displayed card has its source link, a Jev title-relevance score, confidence, and a **Why this is here** disclosure. The example below shows a matched **Agents** interest and recency signal. The score describes Feeder's assessment of the title; it is not a source-platform score or a claim about the full article's quality.
+8. **Read a card and its explanation.** A result card shows the public source, title, topic labels, Jev score, and confidence. **Open source** takes you to the original item; **Save for later** keeps the item in Feeder. Expand **Why this is here** to see the signals used by Feeder. In the example, **Agents** matched a selected interest and the item was recently published. Jev evaluates title relevance; the number is Feeder's score, not a source-platform score or proof that the full article is useful.
 
    <img src="docs/images/discovery-walkthrough/11-after-harvest-items.jpg" alt="Fetched cards with source links and title scores" width="350"> <img src="docs/images/discovery-walkthrough/12-why-this-item.jpg" alt="Expanded recommendation explanation" width="350">
 
-9. **Check where items came from.** Switch to **Sources** to see the source boards. This run showed **14 items ready** in **Research frontier** and **16 items ready** in **Open-source community** after the current matching rules. Opening **Research frontier** and selecting **arXiv** shows individual public items and their source links. Social radar remained at **0 items ready**: TikTok and X require individual public URL imports, while Instagram and YouTube require their documented connections.
+9. **Trace the source of the results.** Switch to **Discover → Sources**. The board totals count items ready under your current matching rules, so they are narrower than the 103-item fetched pool: this run showed **14** in **Research frontier**, **16** in **Open-source community**, and **0** in **Social radar**. Open **Research frontier**, then select **arXiv** to see that source's individual public items and links; selecting a source can trigger its own source-specific fetch. The social board stays empty here because no TikTok or X URL was imported and the optional Instagram and YouTube connections were not configured. Use these boards to inspect provenance and source status rather than treating a zero count as an invented result.
 
    <img src="docs/images/discovery-walkthrough/13-source-overview.jpg" alt="Source boards and ready-item counts" width="350"> <img src="docs/images/discovery-walkthrough/14-arxiv-source.jpg" alt="arXiv source with fetched public items" width="350">
 

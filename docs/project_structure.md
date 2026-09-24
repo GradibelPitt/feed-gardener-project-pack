@@ -149,8 +149,6 @@ feed_gardener_project_pack/
     ├── .gitignore
     ├── .prettierignore
     ├── .prettierrc.json
-    ├── AGENTS.md
-    ├── CLAUDE.md
     ├── Launch.command
     ├── next.config.ts
     ├── package.json
