@@ -1,21 +1,19 @@
 import { domains } from '../feed.ts';
 import { classifyDomain, cleanText, fetchWithTimeout, keywordTags } from './core.ts';
 import type { HarvestItem } from './types.ts';
+import { fetchBilibiliViaTls } from './bilibili-transport.ts';
 
 const SEARCH_URL = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
 const APP_SEARCH_URL = 'https://app.bilibili.com/x/v2/search';
 const SEARCH_HOME_URL = 'https://search.bilibili.com/';
 const BILIBILI_HEADERS = {
   Referer: SEARCH_HOME_URL,
-  Origin: 'https://search.bilibili.com',
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-  'Sec-Fetch-Dest': 'empty',
-  'Sec-Fetch-Mode': 'cors',
-  'Sec-Fetch-Site': 'same-site',
+  Accept: 'application/json',
 };
+const isHostedWorker = () =>
+  typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
 const catalog = domains.flatMap((domain) => domain.tags);
 const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase().trim();
 
@@ -196,12 +194,19 @@ async function searchPage(
     endpoint.searchParams.set('pubtime_begin_s', '1');
     endpoint.searchParams.set('pubtime_end_s', String(before));
   }
-  const response = await fetchWithTimeout(endpoint.toString(), {
+  let response = await fetchWithTimeout(endpoint.toString(), {
     headers: {
       ...BILIBILI_HEADERS,
       Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
     },
   });
+  if (response.status === 412 && isHostedWorker()) {
+    try {
+      response = await fetchBilibiliViaTls(endpoint.toString());
+    } catch {
+      // The hosted runtime may restrict direct HTTPS sockets; retain the app fallback.
+    }
+  }
   if (response.status === 412 && session) {
     // The web endpoint can reject cloud traffic while the public app search remains available.
     session.appPreferred = true;
@@ -230,13 +235,14 @@ async function searchAppPage(
   endpoint.searchParams.set('order', 'pubdate');
   endpoint.searchParams.set('pn', String(page));
   endpoint.searchParams.set('ps', '20');
-  const response = await fetchWithTimeout(endpoint.toString(), {
+  let response = await fetchWithTimeout(endpoint.toString(), {
     headers: {
       ...BILIBILI_HEADERS,
       Referer: 'https://m.bilibili.com/',
-      Origin: 'https://m.bilibili.com',
     },
   });
+  if (response.status === 412 && isHostedWorker())
+    response = await fetchBilibiliViaTls(endpoint.toString());
   if (!response.ok) throw new Error(`Bilibili app search returned HTTP ${response.status}`);
   const payload = await response.json();
   const items = parseBilibiliAppSearch(payload);

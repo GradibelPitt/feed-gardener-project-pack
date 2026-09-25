@@ -288,8 +288,8 @@ test('Bilibili uses its public app search when web search blocks the hosted site
     requests.push(`${url.hostname}${url.pathname}?${url.searchParams.get('pn') ?? 'web'}`);
     if (url.hostname === 'api.bilibili.com') {
       const headers = new Headers(init?.headers);
-      assert.equal(headers.get('origin'), 'https://search.bilibili.com');
-      assert.equal(headers.get('sec-fetch-site'), 'same-site');
+      assert.equal(headers.get('origin'), null);
+      assert.equal(headers.get('sec-fetch-site'), null);
       assert.equal(headers.get('referer'), 'https://search.bilibili.com/all?keyword=Robot%20demo');
       return new Response(null, { status: 412 });
     }
