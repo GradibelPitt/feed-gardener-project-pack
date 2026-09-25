@@ -1,6 +1,8 @@
 .panel {
   position: relative;
   transform-origin: center;
+  container-type: inline-size;
+  container-name: interest-intro;
 }
 
 .target {
@@ -96,6 +98,27 @@
 }
 
 @media (max-width: 600px) {
+  .arrow {
+    top: -6px;
+    right: -85px;
+  }
+
+  .desktopArrow {
+    display: none;
+  }
+
+  .mobileArrow {
+    display: block;
+  }
+}
+
+/* Expanded Sources can make the card narrow even on a desktop viewport. */
+@container interest-intro (max-width: 430px) {
+  .panel > :first-child {
+    flex-direction: column;
+    gap: 18px;
+  }
+
   .arrow {
     top: -6px;
     right: -85px;
