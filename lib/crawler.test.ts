@@ -285,14 +285,12 @@ test('Bilibili retries a blocked search with an anonymous session', async () => 
   const requests: string[] = [];
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
-    requests.push(url.hostname);
-    if (url.hostname === 'search.bilibili.com')
-      return new Response('', {
-        headers: { 'set-cookie': 'buvid3=test-session; Path=/; Domain=.bilibili.com' },
-      });
+    requests.push(url.pathname);
+    if (url.pathname === '/x/frontend/finger/spi')
+      return Response.json({ code: 0, data: { b_3: 'test-session', b_4: 'test-session-4' } });
     const cookie = new Headers(init?.headers).get('cookie');
     if (!cookie) return new Response(null, { status: 412 });
-    assert.equal(cookie, 'buvid3=test-session');
+    assert.match(cookie, /^buvid3=test-session; buvid4=test-session-4; b_nut=\d+$/);
     return Response.json({
       code: 0,
       data: { result: [{ bvid: 'BV1pYaA6FE5T', title: 'Robot demo' }] },
@@ -301,7 +299,11 @@ test('Bilibili retries a blocked search with an anonymous session', async () => 
   try {
     const result = await fetchBilibiliSearchPage(['Robot demo']);
     assert.equal(result.items.length, 1);
-    assert.deepEqual(requests, ['api.bilibili.com', 'search.bilibili.com', 'api.bilibili.com']);
+    assert.deepEqual(requests, [
+      '/x/web-interface/wbi/search/type',
+      '/x/frontend/finger/spi',
+      '/x/web-interface/wbi/search/type',
+    ]);
   } finally {
     globalThis.fetch = before;
   }

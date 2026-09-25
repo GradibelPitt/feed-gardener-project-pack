@@ -4,6 +4,7 @@ import type { HarvestItem } from './types.ts';
 
 const SEARCH_URL = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
 const SEARCH_HOME_URL = 'https://search.bilibili.com/';
+const ANONYMOUS_SESSION_URL = 'https://api.bilibili.com/x/frontend/finger/spi';
 const BILIBILI_HEADERS = {
   Referer: SEARCH_HOME_URL,
   'User-Agent':
@@ -167,6 +168,24 @@ async function searchPage(
 }
 
 async function anonymousSearchCookie(): Promise<string> {
+  const fingerprint = await fetchWithTimeout(
+    ANONYMOUS_SESSION_URL,
+    { headers: BILIBILI_HEADERS },
+    6_000,
+  );
+  if (fingerprint.ok) {
+    const payload = (await fingerprint.json()) as {
+      code?: unknown;
+      data?: { b_3?: unknown; b_4?: unknown };
+    };
+    if (
+      payload.code === 0 &&
+      typeof payload.data?.b_3 === 'string' &&
+      typeof payload.data?.b_4 === 'string'
+    ) {
+      return `buvid3=${payload.data.b_3}; buvid4=${payload.data.b_4}; b_nut=${Math.floor(Date.now() / 1000)}`;
+    }
+  }
   const response = await fetchWithTimeout(
     SEARCH_HOME_URL,
     { headers: BILIBILI_HEADERS, redirect: 'manual' },
