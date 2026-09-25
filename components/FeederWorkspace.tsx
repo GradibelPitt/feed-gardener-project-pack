@@ -19,6 +19,7 @@ import type { TagSuggestion } from '@/lib/tag-suggestions';
 import SourceBoards, { readSocialImports } from './SourceBoards';
 import YouTubeVideo from './YouTubeVideo';
 import BilibiliVideo from './BilibiliVideo';
+import InterestIntro, { InterestIntroTarget } from './InterestIntro';
 import styles from './FeederWorkspace.module.css';
 
 type WorkspacePage = 'discover' | 'garden';
@@ -536,15 +537,17 @@ export default function FeederWorkspace({
         </div>
       </header>
       {view === 'feed' && (
-        <section className={styles.interestsPanel} aria-label="My interests">
+        <InterestIntro className={styles.interestsPanel}>
           <div className={styles.interestsHeading}>
             <div>
               <span className={styles.eyebrow}>MY INTERESTS</span>
               <h2>Your interests</h2>
             </div>
-            <button className={styles.secondary} onClick={onEditInterests}>
-              <SlidersHorizontal size={16} /> Manage interests
-            </button>
+            <InterestIntroTarget>
+              <button className={styles.secondary} onClick={onEditInterests}>
+                <SlidersHorizontal size={16} /> Manage interests
+              </button>
+            </InterestIntroTarget>
           </div>
           <div className={styles.domainList}>
             {domains
@@ -610,7 +613,7 @@ export default function FeederWorkspace({
             {loaded &&
               ` ${candidates.length} of ${publicCandidateCount} fetched items are in this prioritized scoring batch (maximum 60).`}
           </p>
-        </section>
+        </InterestIntro>
       )}
       {view === 'sources' ? (
         <SourceBoards
