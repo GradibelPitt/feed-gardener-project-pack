@@ -14,6 +14,21 @@ const BILIBILI_HEADERS = {
 };
 const isHostedWorker = () =>
   typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers';
+
+async function requestBilibili(
+  endpoint: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  if (isHostedWorker()) {
+    try {
+      const response = await fetchBilibiliViaTls(endpoint);
+      if (response.status !== 412) return response;
+    } catch {
+      // A restricted socket falls back to the standard Worker request.
+    }
+  }
+  return fetchWithTimeout(endpoint, { headers });
+}
 const catalog = domains.flatMap((domain) => domain.tags);
 const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase().trim();
 
@@ -194,19 +209,10 @@ async function searchPage(
     endpoint.searchParams.set('pubtime_begin_s', '1');
     endpoint.searchParams.set('pubtime_end_s', String(before));
   }
-  let response = await fetchWithTimeout(endpoint.toString(), {
-    headers: {
-      ...BILIBILI_HEADERS,
-      Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
-    },
+  const response = await requestBilibili(endpoint.toString(), {
+    ...BILIBILI_HEADERS,
+    Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
   });
-  if (response.status === 412 && isHostedWorker()) {
-    try {
-      response = await fetchBilibiliViaTls(endpoint.toString());
-    } catch {
-      // The hosted runtime may restrict direct HTTPS sockets; retain the app fallback.
-    }
-  }
   if (response.status === 412 && session) {
     // The web endpoint can reject cloud traffic while the public app search remains available.
     session.appPreferred = true;
@@ -235,14 +241,10 @@ async function searchAppPage(
   endpoint.searchParams.set('order', 'pubdate');
   endpoint.searchParams.set('pn', String(page));
   endpoint.searchParams.set('ps', '20');
-  let response = await fetchWithTimeout(endpoint.toString(), {
-    headers: {
-      ...BILIBILI_HEADERS,
-      Referer: 'https://m.bilibili.com/',
-    },
+  const response = await requestBilibili(endpoint.toString(), {
+    ...BILIBILI_HEADERS,
+    Referer: 'https://m.bilibili.com/',
   });
-  if (response.status === 412 && isHostedWorker())
-    response = await fetchBilibiliViaTls(endpoint.toString());
   if (!response.ok) throw new Error(`Bilibili app search returned HTTP ${response.status}`);
   const payload = await response.json();
   const items = parseBilibiliAppSearch(payload);
