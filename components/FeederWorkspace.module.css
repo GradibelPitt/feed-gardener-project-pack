@@ -726,6 +726,13 @@
   background: #e1eddb;
 }
 
+@media (max-width: 600px) {
+  .interestsHeading {
+    flex-direction: column;
+    gap: 18px;
+  }
+}
+
 @media (max-width: 760px) {
   .scorePanelTop,
   .undo {

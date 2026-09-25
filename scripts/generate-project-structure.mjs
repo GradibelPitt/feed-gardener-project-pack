@@ -23,7 +23,7 @@ const skippedDirectories = new Set([
   'blob-report',
   'test-results',
 ]);
-const skippedFiles = new Set(['.DS_Store', '.typesafe-api-key', 'next-env.d.ts']);
+const skippedFiles = new Set(['.git', '.DS_Store', '.typesafe-api-key', 'next-env.d.ts']);
 
 function isIgnored(relativePath, name, isDirectory) {
   if (privateDocs.has(relativePath)) return true;

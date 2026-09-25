@@ -9,6 +9,9 @@ feed_gardener_project_pack/
     │       └── typesafe-ai/
     │           ├── LICENSE
     │           └── SKILL.md
+    ├── .github/
+    │   └── workflows/
+    │       └── generator-generic-ossf-slsa3-publish.yml
     ├── agents/
     │   ├── feed-gardener/
     │   │   └── SKILL.md
@@ -63,6 +66,8 @@ feed_gardener_project_pack/
     │   ├── BilibiliVideo.tsx
     │   ├── FeederWorkspace.module.css
     │   ├── FeederWorkspace.tsx
+    │   ├── InterestIntro.module.css
+    │   ├── InterestIntro.tsx
     │   ├── Onboarding.tsx
     │   ├── ResourceLibrary.tsx
     │   ├── SelectedTagsToggle.tsx
