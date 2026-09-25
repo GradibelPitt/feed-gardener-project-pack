@@ -12,6 +12,11 @@ feed_gardener_project_pack/
     ├── .github/
     │   └── workflows/
     │       └── generator-generic-ossf-slsa3-publish.yml
+    ├── .openai/
+    │   └── hosting.json
+    ├── .wrangler/
+    │   └── deploy/
+    │       └── config.json
     ├── agents/
     │   ├── feed-gardener/
     │   │   └── SKILL.md
@@ -68,6 +73,7 @@ feed_gardener_project_pack/
     │   ├── FeederWorkspace.tsx
     │   ├── InterestIntro.module.css
     │   ├── InterestIntro.tsx
+    │   ├── MotionRoot.tsx
     │   ├── Onboarding.tsx
     │   ├── ResourceLibrary.tsx
     │   ├── SelectedTagsToggle.tsx
@@ -77,6 +83,160 @@ feed_gardener_project_pack/
     │   ├── youtube-video.css
     │   ├── YouTubeConnection.tsx
     │   └── YouTubeVideo.tsx
+    ├── dist/
+    │   ├── .openai/
+    │   │   └── hosting.json
+    │   ├── client/
+    │   │   ├── _next/
+    │   │   │   └── static/
+    │   │   │       ├── chunks/
+    │   │   │       │   ├── app-elements-CfxxHaLN.js
+    │   │   │       │   ├── app-route-prefetch-policy-CTR_VZbl.js
+    │   │   │       │   ├── app-rsc-cache-busting-C05yGk2d.js
+    │   │   │       │   ├── app-rsc-render-mode-CvTCGruk.js
+    │   │   │       │   ├── deployment-id-DFhHa9wO.js
+    │   │   │       │   ├── error-BoCBQqXz.js
+    │   │   │       │   ├── framework-BCvMtQzT.js
+    │   │   │       │   ├── hash-Cp347hhd.js
+    │   │   │       │   ├── headers-C_MtfdF4.js
+    │   │   │       │   ├── hybrid-client-route-owner-CC7C678i.js
+    │   │   │       │   ├── index-B78PKgKT.js
+    │   │   │       │   ├── layout-segment-context-DtAJbVZk.js
+    │   │   │       │   ├── locale-LrLNdGZ2.js
+    │   │   │       │   ├── MotionRoot-mefyR_nn.js
+    │   │   │       │   ├── navigation-errors-DvnshqhP.js
+    │   │   │       │   ├── page-BdHiezrb.js
+    │   │   │       │   ├── page-DYxfaDzr.js
+    │   │   │       │   ├── protocol-headers-B9-bVeat.js
+    │   │   │       │   ├── query-DDhZxhdQ.js
+    │   │   │       │   ├── record-uXSNv6cl.js
+    │   │   │       │   ├── rolldown-runtime-C60lm6uB.js
+    │   │   │       │   └── streamed-icons-GODJkXWh.js
+    │   │   │       ├── css/
+    │   │   │       │   ├── error.DoR6wLvH.css
+    │   │   │       │   ├── index.BNk1UF3k.css
+    │   │   │       │   └── page.CT-qMEFR.css
+    │   │   │       └── ffcfb9cc-4cef-4d2b-a023-9a19cc0cf19e/
+    │   │   │           ├── _buildManifest.js
+    │   │   │           └── _ssgManifest.js
+    │   │   ├── .vite/
+    │   │   │   └── manifest.json
+    │   │   ├── fonts/
+    │   │   │   ├── dm-sans-0.ttf
+    │   │   │   ├── dm-sans-1.ttf
+    │   │   │   ├── dm-sans-2.ttf
+    │   │   │   ├── dm-sans-3.ttf
+    │   │   │   └── dmsans-OFL.txt
+    │   │   ├── _headers
+    │   │   ├── .assetsignore
+    │   │   └── vinext-client-entry-manifest.json
+    │   └── server/
+    │       ├── _next/
+    │       │   └── static/
+    │       │       ├── css/
+    │       │       │   └── index.BNk1UF3k.css
+    │       │       ├── als-registry-BxXlcmpy.js
+    │       │       ├── api-contract-IYTvHZuC.js
+    │       │       ├── app-page-cache-BPzQACxN.js
+    │       │       ├── app-page-cache-finalizer-TqOGobon.js
+    │       │       ├── app-page-cache-render-CmiAjOkR.js
+    │       │       ├── app-page-stream-CWLqOp8z.js
+    │       │       ├── app-prerender-endpoints-DzdFZ5_g.js
+    │       │       ├── app-prerender-static-params-BmmWQNFa.js
+    │       │       ├── app-route-handler-dispatch-DCk7n-Fi.js
+    │       │       ├── app-segment-config-4edEWCYN.js
+    │       │       ├── app-static-generation-BELxJtYZ.js
+    │       │       ├── base-path-DoTXrg9A.js
+    │       │       ├── cache-headers-D0DRGQmI.js
+    │       │       ├── candidate-decision-lqFLLcrg.js
+    │       │       ├── core-ClHLTJ0M.js
+    │       │       ├── dist-CKORipWO.js
+    │       │       ├── error-77T-tbyJ.js
+    │       │       ├── feed-pHYTtWuL.js
+    │       │       ├── file-based-metadata-DjPrqjL8.js
+    │       │       ├── framework~index-vZ7l1afA.js
+    │       │       ├── framework~index~error~page~layout~page~app-page-cache-render~app-page-cache~app-route-handl~klnmocxo-5LGqRvhs.js
+    │       │       ├── framework~index~error~page~layout~page~app-route-handler-dispatch-BKKEzlvk.js
+    │       │       ├── framework~index~layout~app-page-cache-render~app-page-cache~app-route-handler-dispatch-DUm1ehBO.js
+    │       │       ├── headers-BC9mEG2-.js
+    │       │       ├── headers-DhErvvxi.js
+    │       │       ├── http-error-responses-MHMqC7hK.js
+    │       │       ├── implicit-tags-BVHdnFyz.js
+    │       │       ├── isr-cache-B5ZriHIn.js
+    │       │       ├── metadata-route-response-D8qy-r6o.js
+    │       │       ├── metadata-routes-DrrWbyJN.js
+    │       │       ├── navigation-runtime-D2nbD2XT.js
+    │       │       ├── page-B-6ZSaor.js
+    │       │       ├── page-DXILVtj4.js
+    │       │       ├── ppr-fallback-shell-Cnn-dspL.js
+    │       │       ├── record-DunW85rk.js
+    │       │       ├── rolldown-runtime-DUnMT5BP.js
+    │       │       ├── root-params-Ba-ofop2.js
+    │       │       ├── route-BeLCec14.js
+    │       │       ├── route-BFzPDWHe.js
+    │       │       ├── route-CviUsKDM.js
+    │       │       ├── route-CW_xxbIH.js
+    │       │       ├── route-CyFFAM_r.js
+    │       │       ├── route-D62iiXod.js
+    │       │       ├── route-DMbhuA1b.js
+    │       │       ├── route-e5mlper5.js
+    │       │       ├── route-pattern-CojnmG04.js
+    │       │       ├── route-XEDOE2OC.js
+    │       │       ├── route-zDPAYVe-.js
+    │       │       ├── rsc-CwmAFZpA.js
+    │       │       ├── social-Dqjfedwr.js
+    │       │       ├── strategy-BKm9q5Zq.js
+    │       │       ├── text-stream-hNrxZilW.js
+    │       │       ├── thenable-params-97EArXI2.js
+    │       │       ├── unified-request-context-qhL7wVUy.js
+    │       │       └── youtube-connection-gUBjb5U0.js
+    │       ├── .vite/
+    │       │   └── manifest.json
+    │       ├── .wrangler/
+    │       │   ├── state/
+    │       │   │   └── v3/
+    │       │   │       ├── cache/
+    │       │   │       │   └── miniflare-CacheObject/
+    │       │   │       │       ├── metadata.sqlite
+    │       │   │       │       ├── metadata.sqlite-shm
+    │       │   │       │       └── metadata.sqlite-wal
+    │       │   │       └── workflows/
+    │       │   └── tmp/
+    │       ├── ssr/
+    │       │   ├── _next/
+    │       │   │   └── static/
+    │       │   │       ├── css/
+    │       │   │       │   ├── error.DoR6wLvH.css
+    │       │   │       │   └── page.CT-qMEFR.css
+    │       │   │       ├── app-nav-failure-handler-Bceg3kHm.js
+    │       │   │       ├── app-prefetch-fetch-queue-CnWMSlhX.js
+    │       │   │       ├── app-router-scroll-MFZmgSVk.js
+    │       │   │       ├── app-router-scroll-state-DxAzpMJF.js
+    │       │   │       ├── error-boundary-Bd748niq.js
+    │       │   │       ├── error-Cm3XrArl.js
+    │       │   │       ├── html-limited-bots-Dcpbfbg2.js
+    │       │   │       ├── hybrid-client-route-owner-C7x35UTY.js
+    │       │   │       ├── hybrid-client-route-owner-direct-CY4pi4r3.js
+    │       │   │       ├── layout-segment-context-DuCXOKhT.js
+    │       │   │       ├── MotionRoot-CAZYfW4s.js
+    │       │   │       ├── navigation-C70pC9DQ.js
+    │       │   │       ├── page-cE4orO_2.js
+    │       │   │       ├── page-DpEBEdgr.js
+    │       │   │       ├── query-BcsQIrSX.js
+    │       │   │       ├── route-matching-Dh6l6a-L.js
+    │       │   │       ├── static.edge-B9q5OOyu.js
+    │       │   │       └── streamed-icons-C2SJJNjY.js
+    │       │   ├── __vite_rsc_assets_manifest.js
+    │       │   ├── index.js
+    │       │   ├── vinext-client-assets.js
+    │       │   └── vinext-server.json
+    │       ├── __vite_rsc_assets_manifest.js
+    │       ├── BUILD_ID
+    │       ├── index.js
+    │       ├── vinext-client-assets.js
+    │       ├── vinext-externals.json
+    │       ├── vinext-server.json
+    │       └── wrangler.json
     ├── docs/
     │   ├── images/
     │   │   └── discovery-walkthrough/
@@ -113,6 +273,7 @@ feed_gardener_project_pack/
     │   │   ├── merge.ts
     │   │   ├── social.ts
     │   │   ├── types.ts
+    │   │   ├── video-search-terms.ts
     │   │   └── youtube.ts
     │   ├── agent-observation.test.ts
     │   ├── agent-observation.ts
@@ -138,6 +299,7 @@ feed_gardener_project_pack/
     │   ├── resources.ts
     │   ├── score-cache.test.ts
     │   ├── score-cache.ts
+    │   ├── score-cache.worker.ts
     │   ├── strategy.test.ts
     │   ├── strategy.ts
     │   ├── tag-suggestions.test.ts
@@ -150,9 +312,7 @@ feed_gardener_project_pack/
     │       ├── dm-sans-1.ttf
     │       ├── dm-sans-2.ttf
     │       ├── dm-sans-3.ttf
-    │       ├── dmsans-OFL.txt
-    │       ├── libre-caslon-4.ttf
-    │       └── librecaslondisplay-OFL.txt
+    │       └── dmsans-OFL.txt
     ├── scripts/
     │   ├── generate-project-structure.mjs
     │   └── launch.mjs
@@ -166,7 +326,9 @@ feed_gardener_project_pack/
     ├── next.config.ts
     ├── package.json
     ├── pnpm-lock.yaml
+    ├── pnpm-workspace.yaml
     ├── README.md
     ├── skills-lock.json
-    └── tsconfig.json
+    ├── tsconfig.json
+    └── vite.config.ts
 ```

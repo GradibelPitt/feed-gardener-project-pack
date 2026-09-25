@@ -29,3 +29,35 @@ export function mergeHarvestPayload(
     ],
   };
 }
+
+/** Append a video page without moving or dropping cards already on screen. */
+export function appendHarvestPayload(
+  current: HarvestPayload | null,
+  incoming: HarvestPayload,
+): HarvestPayload {
+  if (!current) return incoming;
+  const merged = mergeHarvestPayload(current, incoming);
+  const source = incoming.health.find(
+    (item) => item.source === 'YouTube' || item.source === 'Bilibili',
+  )?.source;
+  if (!source) return merged;
+  const seen = new Set<string>();
+  const social = [
+    ...current.sections.social.filter((item) => item.source === source),
+    ...incoming.sections.social.filter((item) => item.source === source),
+  ].filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+  return {
+    ...merged,
+    sections: {
+      ...merged.sections,
+      social: [...merged.sections.social.filter((item) => item.source !== source), ...social],
+    },
+    health: merged.health.map((item) =>
+      item.source === source ? { ...item, itemCount: social.length } : item,
+    ),
+  };
+}

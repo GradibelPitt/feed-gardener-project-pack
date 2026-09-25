@@ -9,7 +9,7 @@ Your interests and feedback belong to Feed Gardener. The app does not train or m
 ## What it does
 
 - **Discover across sources.** Fetch public candidates from arXiv, GitHub, Hacker News, Bilibili, and configured YouTube search. Bilibili searches English and Chinese interest labels together and displays video cards.
-- **Control relevance.** Choose a target average from 1 to 10. Feed Gardener scores eligible titles in batches, shows the actual average, and reports when the target cannot be reached.
+- **Control relevance.** Choose a minimum Jev score from 1 to 10. Every displayed item must meet that score with at least 70% confidence, including Bilibili and YouTube. Pending or unavailable scores stay hidden; fewer matches never lower the threshold.
 - **Set hard boundaries.** Selected interests guide discovery; blocked topics and sources stay excluded.
 - **Understand each recommendation.** Every item can explain which interests, source, and freshness signals placed it in the feed.
 - **Keep and refine.** Save items for later, hide them, mark them as not interesting, and undo feedback. These actions affect only your Feed Gardener experience.
@@ -76,13 +76,13 @@ These screenshots record the earlier landing flow from September 23, 2026. The l
 
 6. **Set matching rules and the Jev target.** Under **Content matching**, turn on **Include any selected topic**. With the tags from step 3, an item can pass if its available topic labels match Local inference **or** Agents. This control starts unchecked in this run because we added a blocked topic during setup. Leave the other controls off: **Include all selected topics** would require both selected tags on the same item; **Exclude unselected topics** would reject an item carrying any recognized topic you did not select. These switches can be combined, but stricter combinations can leave fewer or no matches. The Game reviews exclusion applies regardless of the switches.
 
-   Next, move **Relevance** from its default of **8** to **7**. Higher stays closer to your selected tags but may show fewer, narrower results. Lower allows more related topics, though some results may drift from your tags. The number is a target for the **average** Jev title-relevance score of displayed items; a single item can score below it. Check the screenshot: **Include any selected topic** is checked, the target reads **7**, and the page still says **0 of 0 candidates scored**. Changing settings alone does not fetch items.
+   Next, move **Relevance** from its default of **8** to **7**. Higher stays closer to your selected tags but may show fewer, narrower results. Lower allows more related topics, though some results may drift from your tags. The number is the **minimum** Jev title-relevance score for **each** displayed item, with at least 70% confidence. Setting it to 9 excludes 6-point and 1-point results in both For you and Sources. Check the screenshot: **Include any selected topic** is checked, the target reads **7**, and the page still says **0 of 0 candidates scored**. Changing settings alone does not fetch items.
 
    ![Configured Discovery before fetching public sources](docs/images/discovery-walkthrough/08-before-harvest.jpg)
 
 7. **Fetch public candidates and compare the result.** Click **Fetch public sources**. Feed Gardener uses the selected topic labels as search hints for its available public sources, then normalizes, deduplicates, and applies your exclusions and matching rules. The button temporarily reads **Fetching…**. Wait until it reads **Refresh sources** and the Jev progress indicator finishes; otherwise you may be looking at an incomplete batch. This action reads public metadata into your local Feed Gardener view and does not act on accounts at those source platforms. If a source fails, the page may show a warning while retaining items from sources that succeeded.
 
-   Compare the screenshots below. In this run, **103 fetched items** was the broader public pool. After the selected-topic matching and prioritization, **30** were in the scoring batch. Jev returned scores for **30 of 30**; **22** had confidence below the feed's 70% threshold and were excluded from display. That left **8 shown**. Their average was **8.16/10**, so the page reported **Target reached** for the target of **7**. The average describes the eight displayed cards, not all 103 fetched items. Your counts may differ as public sources change.
+   The screenshots below record the earlier average-based version; current filtering applies the minimum to each card. In that earlier run, **103 fetched items** was the broader public pool. After the selected-topic matching and prioritization, **30** were in the scoring batch. Jev returned scores for **30 of 30**; **22** had confidence below the feed's 70% threshold and were excluded from display. That left **8 shown**. Their average was **8.16/10**, so the page reported **Target reached** for the target of **7**. The average describes the eight displayed cards, not all 103 fetched items. Your counts may differ as public sources change.
 
    **Before fetch:** no candidates or score.
 
@@ -100,7 +100,7 @@ These screenshots record the earlier landing flow from September 23, 2026. The l
 
    ![Expanded recommendation explanation](docs/images/discovery-walkthrough/12-why-this-item.jpg)
 
-9. **Trace the source of the results.** Switch to **Discover → Sources**. The board totals count items ready under your current matching rules, so they are narrower than the 103-item fetched pool: this run showed **14** in **Research frontier**, **16** in **Open-source community**, and **0** in **Social radar**. Open **Research frontier**, then select **arXiv** to see that source's individual public items and links; selecting a source can trigger its own source-specific fetch. The social board stayed empty in this earlier run because YouTube search was not configured and Bilibili had not been fetched. Use these boards to inspect provenance and source status rather than treating a zero count as an invented result.
+9. **Trace the source of the results.** Switch to **Discover → Sources**. The board totals count candidates under your current topic matching rules, before Jev filtering, so they are narrower than the 103-item fetched pool: this run showed **14** in **Research frontier**, **16** in **Open-source community**, and **0** in **Social radar**. Open **Research frontier**, then select **arXiv** to see that source's individual public items and links; selecting a source can trigger its own source-specific fetch. The social board stayed empty in this earlier run because YouTube search was not configured and Bilibili had not been fetched. Use these boards to inspect provenance and source status rather than treating a zero count as an invented result.
 
    ![Source boards and ready-item counts](docs/images/discovery-walkthrough/13-source-overview.jpg)
 
@@ -110,7 +110,7 @@ This walkthrough is a local UI run. It does not modify recommendations or activi
 
 ## YouTube fetch: setup and before/after
 
-These screenshots show a separate local run on September 24, 2026. The Social radar count can include other imported items, so use the **YouTube** source status and video cards to check whether this fetch succeeded. Video titles and counts will change.
+These screenshots show a separate local run on September 24, 2026, before mandatory YouTube scoring. Current video cards appear only after passing Jev scoring and the Relevance threshold. The Social radar count can include other imported items, so use the **YouTube** source status and video cards to check whether this fetch succeeded. Video titles and counts will change.
 
 1. **Choose search interests.** In **Discover → Manage interests**, select at least one topic. YouTube search uses up to the first two selected interest labels as its query. Return to **Discover → Sources → Social radar**.
 2. **Open YouTube and configure search if needed.** Click the **YouTube** source card. If the local server has no `YOUTUBE_API_KEY`, it shows **API key required**. Paste a YouTube Data API key into the password field and click **Save & search**. The key is kept in the local server's memory until restart and is sent to the official Google API for searches; the field does not display it again. You can instead set `YOUTUBE_API_KEY` in the ignored `.env.local` before starting `pnpm dev`; in that case, clicking **YouTube** starts the search immediately. This search key is separate from the optional read-only YouTube account connection.
@@ -119,7 +119,7 @@ These screenshots show a separate local run on September 24, 2026. The Social ra
 
    ![YouTube source before fetch, showing the API key setup](docs/images/discovery-walkthrough/15-youtube-before-fetch.jpg)
 
-3. **Wait for the source fetch.** The source shows **Fetching YouTube** while it requests public video metadata. When it succeeds, the status changes to **Live public source** and video cards appear. Use **Refresh this source** to fetch again after changing interests. If no interests are selected, the source waits for topics instead of searching.
+3. **Wait for the source fetch.** The source shows **Fetching YouTube** while it requests public video metadata. When it succeeds, the status changes to **Live public source**. Jev then scores the titles, and only cards meeting Relevance with at least 70% confidence appear. Use **Refresh this source** to fetch again after changing interests. If no interests are selected, the source waits for topics instead of searching.
 
    **After:** the YouTube source is live and displays fetched video cards.
 
@@ -127,7 +127,7 @@ These screenshots show a separate local run on September 24, 2026. The Social ra
 
    ![Fetched YouTube video with thumbnail, title, source link, and unscored status](docs/images/discovery-walkthrough/16-youtube-after-fetch.jpg)
 
-4. **Use the results.** Open the original video with **Open source**, or save its card to the local resource library. For videos that support embedding, **Play** loads the YouTube player only after you click it. YouTube search results are shown separately from Jev title scores and do not affect the feed's Jev average. The **For you → Fetch public sources** button can also include a separate **YouTube videos** section when search is configured.
+4. **Use the results.** Open the original video with **Open source**, or save its card to the local resource library. For videos that support embedding, **Play** loads the YouTube player only after you click it. YouTube and Bilibili use the same Jev scoring and minimum-score filter in Sources and For you. Unscored videos never bypass the filter; the displayed average is only a summary of qualifying cards.
 
 ## Command line
 

@@ -179,7 +179,7 @@ export default function ResourceLibrary({
   };
 
   return (
-    <main className="resource-library">
+    <main className="resource-library workspace-content" data-page={mode}>
       <header className="resource-library-head">
         <div>
           <h1>

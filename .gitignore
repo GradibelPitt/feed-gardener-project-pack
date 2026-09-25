@@ -2,6 +2,7 @@ node_modules/
 .next/
 out/
 build/
+dist/
 coverage/
 .nyc_output/
 playwright-report/
@@ -9,6 +10,7 @@ blob-report/
 test-results/
 .vercel/
 .turbo/
+.wrangler/
 .pnpm-store/
 .cache/
 .data/

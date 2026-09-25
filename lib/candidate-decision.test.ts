@@ -163,6 +163,14 @@ test('provider sends only title/tags and one ten-level score question; failures 
     assert.deepEqual(Object.keys(body.questions), ['target_relevance']);
     assert.equal(body.questions.target_relevance.type, 'score');
     assert.equal(body.questions.target_relevance.criteria.length, 10);
+    const rubric = body.questions.target_relevance.instructions;
+    assert.match(rubric, /every user-selected topic/);
+    assert.match(rubric, /title itself identifies that topic as the main subject/);
+    assert.match(rubric, /Use only the title as evidence/);
+    assert.match(rubric, /A title about a different subject must score low/);
+    assert.match(rubric, /A broad selected topic still needs clear title evidence/);
+    assert.doesNotMatch(rubric, /热血高校|AI search/);
+    assert.match(body.questions.target_relevance.criteria[0], /different subject/);
     if (response instanceof Error) throw response;
     return response;
   });

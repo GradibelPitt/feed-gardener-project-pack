@@ -1,21 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
-  Bookmark,
   BookOpen,
   CheckCircle2,
   CircleAlert,
   Clock3,
   Code2,
-  ExternalLink,
   FileSearch,
   LoaderCircle,
   MessageCircle,
   Newspaper,
   RefreshCw,
-  Search,
   Share2,
   Sparkles,
 } from 'lucide-react';
@@ -26,35 +23,22 @@ import type {
   LiveSource,
   SourceHealth,
 } from '@/lib/crawler/types';
-import { mergeHarvestPayload } from '@/lib/crawler/merge';
+import { appendHarvestPayload, mergeHarvestPayload } from '@/lib/crawler/merge';
 import { readApiData } from '@/lib/api-contract';
 import type { Locale } from '@/lib/locale';
-import { bilingualInterestLabel, matchesHarvestPreferences, type Preferences } from '@/lib/feed';
-import type { JevRating } from '@/lib/feed-simulator';
-import YouTubeVideo from './YouTubeVideo';
-import BilibiliVideo from './BilibiliVideo';
-
-type SourceRating =
-  | { state: 'scored'; rating: JevRating }
-  | { state: 'unavailable'; reason: 'not_configured' | 'failed' };
-
-function ratingKey(item: HarvestItem, goalKey: string): string {
-  return `${goalKey}\u0001${item.url}\u0000${item.title}`;
-}
-
+import { matchesHarvestPreferences, type Preferences } from '@/lib/feed';
 type Props = {
   locale: Locale;
   interestLabels: string[];
   localizedInterestLabels: string[];
   preferences: Preferences;
   initialPayload?: HarvestPayload | null;
-  onHarvested?: (payload: HarvestPayload) => void;
+  onHarvested?: (payload: HarvestPayload, append?: boolean, source?: LiveSource) => void;
+  onVideoFetchStart?: (source: 'YouTube' | 'Bilibili') => void;
+  onVideoFetchEnd?: () => void;
   onSocialImport?: (item: HarvestItem) => void;
   t: (zh: string, en: string) => string;
-  savedResourceIds: string[];
-  onSaveResource: (item: HarvestItem) => void;
   onEditInterests: () => void;
-  onRelaxMatching?: () => void;
 };
 
 const SOCIAL_STORAGE = 'feed-gardener-social-imports-v1';
@@ -116,17 +100,6 @@ const sourceMark: Record<LiveSource, string> = {
   'Hacker News': 'HN',
 };
 
-function relativeDate(value: string | null, locale: Locale): string {
-  if (!value) return locale === 'zh' ? '时间未提供' : 'Date unavailable';
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return locale === 'zh' ? '时间未提供' : 'Date unavailable';
-  const hours = Math.max(0, Math.floor((Date.now() - timestamp) / 3_600_000));
-  if (hours < 1) return locale === 'zh' ? '刚刚' : 'Just now';
-  if (hours < 24) return locale === 'zh' ? `${hours} 小时前` : `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return locale === 'zh' ? `${days} 天前` : `${days}d ago`;
-}
-
 function healthText(health: SourceHealth, locale: Locale): string {
   return locale === 'zh' ? health.label : health.labelEn;
 }
@@ -169,120 +142,6 @@ export function readSocialImports(): HarvestItem[] {
   }
 }
 
-function ItemCard({
-  item,
-  locale,
-  saved,
-  onSave,
-  rating,
-  hasInterests,
-  onRetryScore,
-}: {
-  item: HarvestItem;
-  locale: Locale;
-  saved: boolean;
-  onSave: () => void;
-  rating?: SourceRating;
-  hasInterests: boolean;
-  onRetryScore: () => void;
-}) {
-  const metric = item.metrics?.stars
-    ? `★ ${item.metrics.stars.toLocaleString()}`
-    : item.metrics?.score
-      ? `${item.metrics.score} pts`
-      : null;
-  return (
-    <article className="source-item">
-      <div className={`source-stamp source-stamp-${item.source.toLowerCase().replace(/\s/g, '-')}`}>
-        {sourceMark[item.source]}
-      </div>
-      <div className="source-item-main">
-        {item.source === 'YouTube' ? (
-          <YouTubeVideo item={item} />
-        ) : item.source === 'Bilibili' ? (
-          <BilibiliVideo item={item} />
-        ) : item.imageUrl ? (
-          <img className="source-item-cover" src={item.imageUrl} alt="" loading="lazy" />
-        ) : null}
-        <div className="source-item-meta">
-          <span>{item.source}</span>
-          <i />
-          <span>{relativeDate(item.publishedAt, locale)}</span>
-          {metric && (
-            <>
-              <i />
-              <span>{metric}</span>
-            </>
-          )}
-        </div>
-        <h3>{item.title}</h3>
-        <div className={`source-jev-score ${rating?.state === 'scored' ? 'is-scored' : ''}`}>
-          <Sparkles size={13} aria-hidden="true" />
-          <span>
-            {item.source === 'YouTube'
-              ? locale === 'zh'
-                ? 'Jev 相关度 · YouTube 搜索结果不评分'
-                : 'Jev relevance · YouTube search is not scored'
-              : rating?.state === 'scored'
-                ? `${locale === 'zh' ? 'Jev 相关度' : 'Jev relevance'} ${rating.rating.score.toFixed(1)} / 10`
-                : !hasInterests
-                  ? locale === 'zh'
-                    ? 'Jev 相关度 · 请先选择兴趣'
-                    : 'Jev relevance · Select interests'
-                  : rating?.state === 'unavailable'
-                    ? rating.reason === 'not_configured'
-                      ? locale === 'zh'
-                        ? 'Jev 相关度 · 未配置'
-                        : 'Jev relevance · Not configured'
-                      : locale === 'zh'
-                        ? 'Jev 相关度 · 暂不可用'
-                        : 'Jev relevance · Unavailable'
-                    : locale === 'zh'
-                      ? 'Jev 相关度 · 评分中…'
-                      : 'Jev relevance · Scoring…'}
-          </span>
-          {rating?.state === 'unavailable' && rating.reason === 'failed' && (
-            <button type="button" onClick={onRetryScore}>
-              {locale === 'zh' ? '重试' : 'Retry'}
-            </button>
-          )}
-        </div>
-        <p>{item.summary}</p>
-        <div className="source-item-bottom">
-          <div className="source-tags">
-            <span className="domain-chip">{item.domain}</span>
-            {item.tags
-              .filter((tag) => tag !== item.source)
-              .slice(0, 3)
-              .map((tag) => (
-                <span key={tag}>{tag}</span>
-              ))}
-          </div>
-          <a href={item.url} target="_blank" rel="noreferrer">
-            {locale === 'zh' ? '查看原文' : 'Open source'} <ExternalLink size={13} />
-          </a>
-          <button
-            className={saved ? 'source-save saved' : 'source-save'}
-            onClick={onSave}
-            aria-label={
-              saved
-                ? locale === 'zh'
-                  ? '已收藏到资源库'
-                  : 'Saved to resource library'
-                : locale === 'zh'
-                  ? '收藏到资源库'
-                  : 'Save to resource library'
-            }
-          >
-            <Bookmark size={13} fill={saved ? 'currentColor' : 'none'} />
-            {saved ? (locale === 'zh' ? '已入库' : 'Saved') : locale === 'zh' ? '收藏' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export default function SourceBoards({
   locale,
   interestLabels,
@@ -290,19 +149,17 @@ export default function SourceBoards({
   preferences,
   initialPayload,
   onHarvested,
+  onVideoFetchStart,
+  onVideoFetchEnd,
   onSocialImport,
   t,
-  savedResourceIds,
-  onSaveResource,
   onEditInterests,
-  onRelaxMatching,
 }: Props) {
   const [active, setActive] = useState<FeedSection>('social');
   const [selectedSource, setSelectedSource] = useState<LiveSource | null>(null);
   const [payload, setPayload] = useState<HarvestPayload | null>(initialPayload ?? null);
   const [loadingSource, setLoadingSource] = useState<LiveSource | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [query, setQuery] = useState('');
   const [socialUrl, setSocialUrl] = useState('');
   const [socialImports, setSocialImports] = useState<HarvestItem[]>([]);
   const [socialBusy, setSocialBusy] = useState(false);
@@ -311,12 +168,17 @@ export default function SourceBoards({
   const [youtubeKeyBusy, setYoutubeKeyBusy] = useState(false);
   const [youtubeKeyError, setYoutubeKeyError] = useState('');
   const [jevFallbackOpen, setJevFallbackOpen] = useState(false);
-  const [ratings, setRatings] = useState<Map<string, SourceRating>>(() => new Map());
-  const ratingsRef = useRef(ratings);
-  const [retryRevision, setRetryRevision] = useState(0);
+  const [videoCursors, setVideoCursors] = useState<Partial<Record<LiveSource, string | null>>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
   const hasSearchInterests = interestLabels.some((label) => label.trim().length > 0);
 
+  useEffect(() => {
+    setPayload(initialPayload ?? null);
+  }, [initialPayload]);
+
   const loadSource = async (source: LiveSource, refresh = false) => {
+    if (source === 'YouTube' || source === 'Bilibili') onVideoFetchStart?.(source);
     setLoadingSource(source);
     setLoadError('');
     try {
@@ -330,19 +192,49 @@ export default function SourceBoards({
       });
       const incoming = await readApiData<HarvestPayload>(response);
       setPayload((current) => mergeHarvestPayload(current, incoming));
-      onHarvested?.(incoming);
+      if (source === 'YouTube' || source === 'Bilibili')
+        setVideoCursors((current) => ({ ...current, [source]: incoming.nextCursor ?? null }));
+      onHarvested?.(incoming, false, source);
     } catch {
       setLoadError(
         t('来源暂时不可用，请重试。', 'This source is unavailable right now. Try again.'),
       );
     } finally {
       setLoadingSource(null);
+      if (source === 'YouTube' || source === 'Bilibili') onVideoFetchEnd?.();
+    }
+  };
+
+  const loadMoreVideos = async () => {
+    const source = selectedSource;
+    const cursor = source ? videoCursors[source] : null;
+    if (!source || !cursor || loadingMoreRef.current || loadingSource) return;
+    if (source === 'YouTube' || source === 'Bilibili') onVideoFetchStart?.(source);
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    setLoadError('');
+    try {
+      const params = new URLSearchParams({ source, cursor });
+      interestLabels.slice(0, 2).forEach((tag) => params.append('tag', tag));
+      localizedInterestLabels.slice(0, 2).forEach((tag) => params.append('tagZh', tag));
+      const response = await fetch(`/api/harvest?${params}`, { cache: 'no-store' });
+      const incoming = await readApiData<HarvestPayload>(response);
+      if (incoming.health.some((item) => item.source === source && item.state === 'error'))
+        throw new Error('Video search failed');
+      setPayload((current) => appendHarvestPayload(current, incoming));
+      setVideoCursors((current) => ({ ...current, [source]: incoming.nextCursor ?? null }));
+      onHarvested?.(incoming, true, source);
+    } catch {
+      setLoadError(t('继续加载失败，请重试。', 'Could not load more videos. Try again.'));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+      onVideoFetchEnd?.();
     }
   };
 
   const selectSource = (source: LiveSource) => {
     setSelectedSource(source);
-    setQuery('');
     setLoadError('');
     setSocialError('');
     setYoutubeApiKey('');
@@ -365,107 +257,7 @@ export default function SourceBoards({
           ...(payload?.sections[active] ?? []),
           ...(active === 'social' ? socialImports : []),
         ].filter((item) => item.source === selectedSource);
-  const filteredItems = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return sectionItems.filter(
-      (item) =>
-        matchesHarvestPreferences(item, preferences) &&
-        (!needle ||
-          [item.title, item.summary, item.author, item.source, item.domain, ...item.tags]
-            .join(' ')
-            .toLowerCase()
-            .includes(needle)),
-    );
-  }, [query, sectionItems, preferences]);
-  const visibleItems = filteredItems.slice(0, 24);
-  const goalTags = [
-    ...new Set(
-      interestLabels
-        .map((tag, index) => bilingualInterestLabel(tag, localizedInterestLabels[index]))
-        .filter(Boolean),
-    ),
-  ].slice(0, 12);
-  const goalKey = goalTags.join('\u0000');
-  const visibleRatingContext = visibleItems.map((item) => ratingKey(item, goalKey)).join('\u0002');
-
-  useEffect(() => {
-    if (!goalTags.length || !visibleItems.length) return;
-    const controller = new AbortController();
-    const missing = visibleItems.filter(
-      (item) => item.source !== 'YouTube' && !ratingsRef.current.has(ratingKey(item, goalKey)),
-    );
-    async function scoreVisibleItems() {
-      for (let offset = 0; offset < missing.length && !controller.signal.aborted; offset += 4) {
-        const batch = missing.slice(offset, offset + 4);
-        const results = await Promise.all(
-          batch.map(async (item): Promise<[string, SourceRating]> => {
-            const key = ratingKey(item, goalKey);
-            try {
-              const response = await fetch('/api/agent/v1/decisions/preview', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  platform: 'feeder',
-                  contentTitle: item.title,
-                  goalTags,
-                  remainingVideoBudget: 1,
-                  remainingMinuteBudget: 1,
-                  provider: 'jev',
-                }),
-                signal: controller.signal,
-              });
-              if (response.status === 503)
-                return [key, { state: 'unavailable', reason: 'not_configured' }];
-              const { decision } = await readApiData<{
-                decision: {
-                  provider: string;
-                  relevanceScore: number | null;
-                  confidence: number | null;
-                  model?: string;
-                };
-              }>(response);
-              if (
-                decision.provider !== 'jev' ||
-                decision.relevanceScore === null ||
-                decision.confidence === null
-              )
-                throw new Error('Jev score unavailable');
-              return [
-                key,
-                {
-                  state: 'scored',
-                  rating: {
-                    score: decision.relevanceScore,
-                    confidence: decision.confidence,
-                    model: decision.model,
-                  },
-                },
-              ];
-            } catch {
-              return [key, { state: 'unavailable', reason: 'failed' }];
-            }
-          }),
-        );
-        if (controller.signal.aborted) break;
-        const next = new Map(ratingsRef.current);
-        for (const [key, rating] of results) next.set(key, rating);
-        ratingsRef.current = next;
-        setRatings(next);
-      }
-    }
-    void scoreVisibleItems();
-    return () => controller.abort();
-    // The serialized context changes only when visible titles, URLs, or interest tags change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRatingContext, retryRevision]);
-
-  const retryScore = (item: HarvestItem) => {
-    const next = new Map(ratingsRef.current);
-    next.delete(ratingKey(item, goalKey));
-    ratingsRef.current = next;
-    setRatings(next);
-    setRetryRevision((value) => value + 1);
-  };
+  const isVideoSource = selectedSource === 'YouTube' || selectedSource === 'Bilibili';
   const health = payload?.health.filter((item) => item.section === active) ?? [];
   const selectedHealth = health.find((item) => item.source === selectedSource);
   const activeMeta = sectionMeta.find((section) => section.id === active) ?? sectionMeta[0];
@@ -590,7 +382,6 @@ export default function SourceBoards({
               onClick={() => {
                 setActive(section.id);
                 setSelectedSource(null);
-                setQuery('');
                 setJevFallbackOpen(false);
                 setYoutubeApiKey('');
                 setYoutubeKeyError('');
@@ -616,12 +407,11 @@ export default function SourceBoards({
             >
               <span className="section-card-top">
                 <Icon size={20} />
-                <em>{section.eyebrow}</em>
+                <strong>{t(section.zh, section.en)}</strong>
                 <ArrowUpRight size={16} />
               </span>
-              <strong>{t(section.zh, section.en)}</strong>
               <span className="section-card-count">
-                <b>{count}</b> {t('条可浏览', 'items ready')}
+                <b>{count}</b> {t('条候选', 'candidates')}
                 <i className={hasError ? 'degraded' : ''} />
               </span>
             </button>
@@ -742,8 +532,8 @@ export default function SourceBoards({
               </strong>
               <p>
                 {t(
-                  '公开结果标题会按所选兴趣请求 Jev 评估 1–10 分相关度；YouTube API 搜索结果不参与评分。评分失败会明确显示，采集异常仍需修复采集程序；此处不执行真实播放。',
-                  'Jev rates displayed public result titles against your interests from 1–10. YouTube API search results are excluded. Failed scores are shown explicitly. Collection failures still need a crawler fix; this does not start playback.',
+                  '所有来源（包括 Bilibili 和 YouTube）都先按兴趣进行 Jev 评分，仅展示达到 Relevance 门槛且置信度合格的内容；评分失败的内容暂不展示。评分不代表观看过视频。',
+                  'Jev scores all sources, including Bilibili and YouTube, against your interests. Only confident scores at or above Relevance are shown. Failed scores stay hidden. Scoring uses titles and does not watch videos.',
                 )}
               </p>
             </div>
@@ -798,15 +588,75 @@ export default function SourceBoards({
           </div>
         )}
 
+        {selectedSource === 'YouTube' &&
+          (selectedHealth?.state === 'configuration_required' ||
+            selectedHealth?.state === 'error') && (
+            <div className="source-empty" aria-labelledby="youtube-key-prompt">
+              <CircleAlert size={22} />
+              <h3 id="youtube-key-prompt" role="status">
+                {selectedHealth.state === 'configuration_required'
+                  ? t(
+                      '请先填写 YouTube Data API key',
+                      'Enter your YouTube Data API key to continue',
+                    )
+                  : healthText(selectedHealth, locale)}
+              </h3>
+              <form className="source-key-form" onSubmit={configureYouTube}>
+                <label htmlFor="youtube-search-api-key">
+                  {t('YouTube Data API key', 'YouTube Data API key')}
+                </label>
+                <div>
+                  <input
+                    id="youtube-search-api-key"
+                    type="password"
+                    required
+                    minLength={20}
+                    maxLength={256}
+                    pattern="[A-Za-z0-9_-]{20,256}"
+                    aria-describedby="youtube-key-prompt"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    value={youtubeApiKey}
+                    onChange={(event) => {
+                      setYoutubeApiKey(event.target.value);
+                      setYoutubeKeyError('');
+                    }}
+                    placeholder={t('粘贴 API key', 'Paste API key')}
+                    disabled={youtubeKeyBusy}
+                  />
+                  <button type="submit" disabled={youtubeKeyBusy || !youtubeApiKey.trim()}>
+                    {youtubeKeyBusy
+                      ? t('连接中', 'Connecting')
+                      : interestLabels.length
+                        ? t('保存并搜索', 'Save & search')
+                        : t('保存 key', 'Save key')}
+                  </button>
+                </div>
+                <p>
+                  {t(
+                    '只存于本机服务内存；搜索时会发送给 Google 官方 API，重启后失效。',
+                    'Kept in local server memory until restart and sent to the official Google API for searches.',
+                  )}
+                </p>
+                <a
+                  href="https://developers.google.com/youtube/v3/getting-started"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('如何获取 API key', 'How to get an API key')}
+                </a>
+                {youtubeKeyError && (
+                  <p className="source-key-error" role="alert">
+                    {youtubeKeyError}
+                  </p>
+                )}
+              </form>
+            </div>
+          )}
+
         <div className="source-board-toolbar">
-          <label>
-            <Search size={15} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('搜索这个板块', 'Search this section')}
-            />
-          </label>
+          <span>{t('内容统一显示在「For you」', 'Browse results in For you')}</span>
           <span>
             <Clock3 size={13} />
             {selectedSource && payload?.health.some((item) => item.source === selectedSource)
@@ -818,27 +668,15 @@ export default function SourceBoards({
           </span>
         </div>
 
-        {selectedSource === 'Bilibili' && !hasSearchInterests ? (
-          <div className="source-empty">
-            <MessageCircle size={22} />
-            <h3>{t('先选择兴趣，再搜索 Bilibili', 'Choose an interest to search Bilibili')}</h3>
-            <p>
-              {t(
-                'Bilibili 会用你选定的主题搜索公开视频。',
-                'Bilibili searches public videos using your selected topics.',
-              )}
-            </p>
-            <button onClick={onEditInterests}>{t('选择兴趣', 'Choose interests')}</button>
-          </div>
-        ) : loadingSource ? (
-          <div className="source-loading">
+        {loadingSource && (
+          <div className="source-loading" role="status">
             <LoaderCircle className="spinning" />
             <strong>{t('正在采集', `Fetching ${loadingSource}`)}</strong>
           </div>
-        ) : loadError ? (
-          <div className="source-empty source-error-state">
+        )}
+        {loadError && (
+          <div className="source-empty source-error-state" role="alert">
             <CircleAlert size={22} />
-            <h3>{t('这次没有采到新内容', 'No fresh items this time')}</h3>
             <p>{loadError}</p>
             {selectedSource && !urlSources.has(selectedSource) && (
               <button onClick={() => void loadSource(selectedSource, true)}>
@@ -846,106 +684,29 @@ export default function SourceBoards({
               </button>
             )}
           </div>
-        ) : filteredItems.length ? (
-          <div className="source-items">
-            {visibleItems.map((item) => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                locale={locale}
-                saved={savedResourceIds.includes(item.id)}
-                onSave={() => onSaveResource(item)}
-                rating={ratings.get(ratingKey(item, goalKey))}
-                hasInterests={goalTags.length > 0}
-                onRetryScore={() => retryScore(item)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="source-empty">
-            {active === 'academic' ? (
-              <BookOpen size={22} />
-            ) : active === 'opensource' ? (
-              <Code2 size={22} />
-            ) : (
-              <MessageCircle size={22} />
-            )}
-            <h3>
-              {!selectedSource
-                ? t('选择上方来源开始', 'Select a source above to fetch')
-                : query
-                  ? t('没有匹配当前搜索的内容', 'Nothing matches this search')
-                  : (preferences.onlySelectedTags ||
-                        preferences.requireAllSelectedTags ||
-                        preferences.excludeUnselectedTags) &&
-                      sectionItems.length > 0
-                    ? t('没有匹配当前兴趣规则的内容', 'No items match your interest rules')
-                    : urlSources.has(selectedSource)
-                      ? t('输入一条公开帖子链接', 'Enter one public post URL above')
-                      : selectedHealth?.state === 'configuration_required' ||
-                          selectedHealth?.state === 'error'
-                        ? healthText(selectedHealth, locale)
-                        : t('该来源暂时没有内容', 'No items from this source yet')}
-            </h3>
-            {selectedSource === 'YouTube' &&
-              (selectedHealth?.state === 'configuration_required' ||
-                selectedHealth?.state === 'error') && (
-                <form className="source-key-form" onSubmit={configureYouTube}>
-                  <label htmlFor="youtube-search-api-key">
-                    {t('YouTube Data API key', 'YouTube Data API key')}
-                  </label>
-                  <div>
-                    <input
-                      id="youtube-search-api-key"
-                      type="password"
-                      autoComplete="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      value={youtubeApiKey}
-                      onChange={(event) => {
-                        setYoutubeApiKey(event.target.value);
-                        setYoutubeKeyError('');
-                      }}
-                      placeholder={t('粘贴 API key', 'Paste API key')}
-                      disabled={youtubeKeyBusy}
-                    />
-                    <button type="submit" disabled={youtubeKeyBusy || !youtubeApiKey.trim()}>
-                      {youtubeKeyBusy
-                        ? t('连接中', 'Connecting')
-                        : interestLabels.length
-                          ? t('保存并搜索', 'Save & search')
-                          : t('保存 key', 'Save key')}
-                    </button>
-                  </div>
-                  <p>
-                    {t(
-                      '只存于本机服务内存；搜索时会发送给 Google 官方 API，重启后失效。',
-                      'Kept in local server memory until restart and sent to the official Google API for searches.',
-                    )}
-                  </p>
-                  <a
-                    href="https://developers.google.com/youtube/v3/getting-started"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t('如何获取 API key', 'How to get an API key')}
-                  </a>
-                  {youtubeKeyError && (
-                    <p className="source-key-error" role="alert">
-                      {youtubeKeyError}
-                    </p>
-                  )}
-                </form>
-              )}
-            {query && <button onClick={() => setQuery('')}>Clear search</button>}
-            {(preferences.onlySelectedTags ||
-              preferences.requireAllSelectedTags ||
-              preferences.excludeUnselectedTags) &&
-              sectionItems.length > 0 && (
-                <button onClick={onRelaxMatching}>Relax matching rules</button>
-              )}
-          </div>
         )}
+
+        {isVideoSource &&
+          !onVideoFetchStart &&
+          (sectionItems.length > 0 || videoCursors[selectedSource!]) && (
+            <div className="video-load-footer" aria-live="polite">
+              {loadingMore ? (
+                <span>{t('正在继续搜索视频…', 'Searching for more videos…')}</span>
+              ) : videoCursors[selectedSource!] ? (
+                <button
+                  type="button"
+                  disabled={loadingSource !== null}
+                  onClick={() => void loadMoreVideos()}
+                >
+                  {loadError
+                    ? t('重试加载更多', 'Retry loading more')
+                    : t('加载更多视频', 'Load more videos')}
+                </button>
+              ) : (
+                <span>{t('已获取全部搜索结果', 'All search results fetched')}</span>
+              )}
+            </div>
+          )}
 
         {payload?.warnings.length ? (
           <details className="source-warnings">

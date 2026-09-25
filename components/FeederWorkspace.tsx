@@ -1,7 +1,26 @@
 'use client';
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowUpRight, Bookmark, Compass, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
+import {
+  ArrowUpRight,
+  Bookmark,
+  ChevronDown,
+  Compass,
+  Layers3,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import type { HarvestItem, HarvestPayload } from '@/lib/crawler/types';
 import type { Locale } from '@/lib/locale';
 import { readApiData } from '@/lib/api-contract';
@@ -13,8 +32,8 @@ import {
   type FeederSignal,
 } from '@/lib/feeder';
 import { resourceUrlKey, type ResourceRecord } from '@/lib/resources';
-import { mergeHarvestPayload } from '@/lib/crawler/merge';
-import { simulateFeed, type JevRating } from '@/lib/feed-simulator';
+import { appendHarvestPayload, mergeHarvestPayload } from '@/lib/crawler/merge';
+import { feedRatingContext, simulateFeed, type JevRating } from '@/lib/feed-simulator';
 import type { TagSuggestion } from '@/lib/tag-suggestions';
 import SourceBoards, { readSocialImports } from './SourceBoards';
 import YouTubeVideo from './YouTubeVideo';
@@ -23,6 +42,8 @@ import InterestIntro, { InterestIntroTarget } from './InterestIntro';
 import styles from './FeederWorkspace.module.css';
 
 type WorkspacePage = 'discover' | 'garden';
+type VideoSource = 'YouTube' | 'Bilibili';
+type VideoPage = { cursor: string | null; tags: string[]; localizedTags: string[] };
 type Props = {
   page: WorkspacePage;
   locale: Locale;
@@ -39,6 +60,8 @@ type Props = {
     value: boolean,
   ) => void;
   onEditInterests: () => void;
+  guideStep: number;
+  onGuideAdvance: (step: number) => void;
 };
 
 const catalog = domains.flatMap((domain) =>
@@ -79,15 +102,36 @@ export default function FeederWorkspace({
   onOnlySelectedTagsChange,
   onInterestRuleChange,
   onEditInterests,
+  guideStep,
+  onGuideAdvance,
 }: Props) {
   const [payload, setPayload] = useState<HarvestPayload | null>(null);
   const [socialImports, setSocialImports] = useState<HarvestItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState('');
-  const [view, setView] = useState<'feed' | 'sources'>('feed');
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
+  const [interestsDetailsOpen, setInterestsDetailsOpen] = useState(false);
+  const [relevanceDetailsOpen, setRelevanceDetailsOpen] = useState(false);
+  const interestsDetailsId = useId();
+  const relevanceDetailsId = useId();
+  const [videoFetchStarted, setVideoFetchStarted] = useState(false);
+  const [isCompact, setIsCompact] = useState(false);
+  const [compactPanel, setCompactPanel] = useState<'forYou' | 'sources' | null>(null);
+  const [videoPages, setVideoPages] = useState<Partial<Record<VideoSource, VideoPage>>>({});
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [sourceVideoLoading, setSourceVideoLoading] = useState(false);
+  const [olderError, setOlderError] = useState('');
+  const olderLoadingRef = useRef(false);
+  const nextVideoSourceRef = useRef(0);
+  const loadSentinelRef = useRef<HTMLDivElement>(null);
+  const sentinelVisibleRef = useRef(false);
+  const scrollIgnoreUntilRef = useRef(0);
   const [query, setQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTag, setSearchTag] = useState('');
   const [displayCount, setDisplayCount] = useState(20);
+  const [videoColumns, setVideoColumns] = useState<'auto' | '1' | '2' | '3' | '4'>('auto');
   const [ratingRevision, setRatingRevision] = useState(0);
   const [scoring, setScoring] = useState(false);
   const [scoringError, setScoringError] = useState('');
@@ -99,6 +143,7 @@ export default function FeederWorkspace({
   const [nearbyUpdatedAt, setNearbyUpdatedAt] = useState<string | null>(null);
   const [nearbyRefresh, setNearbyRefresh] = useState(0);
   const ratingsRef = useRef(new Map<string, JevRating>());
+  const ratedTitlesRef = useRef(new Map<string, string>());
   const ratingContextRef = useRef('');
   const interests = searchInterests(preferences);
   const nearbyQuery = JSON.stringify({
@@ -169,20 +214,45 @@ export default function FeederWorkspace({
     return () => controller.abort();
   }, [page, nearbyQuery, nearbyRefresh]);
 
-  async function refresh(force = false) {
+  async function refresh(
+    force = false,
+    options: { search?: string | null; completeGuide?: boolean } = {},
+  ) {
+    setVideoFetchStarted(true);
+    setIsCompact(false);
+    setCompactPanel(null);
+    setVideoPages({});
+    setOlderError('');
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       if (force) params.set('refresh', 'true');
-      interests.slice(0, 2).forEach((interest) => {
-        params.append('tag', interest.labelEn);
-        params.append('tagZh', interest.labelZh);
-      });
+      const activeSearch = options.search !== undefined ? (options.search ?? '') : searchTag;
+      const tags = activeSearch
+        ? [activeSearch.slice(0, 80)]
+        : interests.slice(0, 2).map((interest) => interest.labelEn);
+      const localizedTags = activeSearch
+        ? []
+        : interests.slice(0, 2).map((interest) => interest.labelZh);
+      tags.forEach((tag) => params.append('tag', tag));
+      localizedTags.forEach((tag) => params.append('tagZh', tag));
       const response = await fetch(`/api/harvest?${params}`, {
         cache: 'no-store',
       });
-      setPayload(await readApiData<HarvestPayload>(response));
+      const incoming = await readApiData<HarvestPayload>(response);
+      setPayload(incoming);
+      if (options.completeGuide) onGuideAdvance(5);
+      setVideoPages(
+        Object.fromEntries(
+          (['YouTube', 'Bilibili'] as const)
+            .filter((source) => incoming.nextCursors?.[source])
+            .map((source) => [
+              source,
+              { cursor: incoming.nextCursors?.[source] ?? null, tags, localizedTags },
+            ]),
+        ),
+      );
       setSocialImports(readSocialImports());
     } catch {
       setError('Public sources could not be loaded. Try again.');
@@ -190,6 +260,34 @@ export default function FeederWorkspace({
       setLoading(false);
       setLoaded(true);
     }
+  }
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = searchInput.trim().slice(0, 80);
+    if (!trimmed) return;
+    setSearchTag(trimmed);
+    setPayload(null);
+    setLoaded(false);
+    setDisplayCount(20);
+    setQuery('');
+    ratingsRef.current.clear();
+    ratedTitlesRef.current.clear();
+    ratingContextRef.current = '';
+    void refresh(true, { search: trimmed });
+  }
+
+  function clearSearch() {
+    if (!searchTag && !searchInput) return;
+    setSearchTag('');
+    setSearchInput('');
+    setPayload(null);
+    setLoaded(false);
+    setVideoPages({});
+    setDisplayCount(20);
+    ratingsRef.current.clear();
+    ratedTitlesRef.current.clear();
+    ratingContextRef.current = '';
   }
 
   useEffect(() => {
@@ -200,11 +298,27 @@ export default function FeederWorkspace({
     () => new Set(resources.map((item) => resourceUrlKey(item.url))),
     [resources],
   );
-  // Target average and legacy Agent settings do not affect candidate eligibility or ranking.
+  // Relevance is applied after scoring; it does not change the candidate pool.
+  // While a search is active, tag-based preference filters are relaxed so the
+  // ad-hoc search text drives the pool without ever being written back to
+  // preferences. Blocked sources and blocked tags still apply.
   const candidatePreferences = useMemo(
-    () => preferences,
+    () =>
+      searchTag
+        ? {
+            ...preferences,
+            tags: [],
+            domains: [],
+            customTags: [],
+            relatedDomains: [],
+            onlySelectedTags: false,
+            requireAllSelectedTags: false,
+            excludeUnselectedTags: false,
+          }
+        : preferences,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      searchTag,
       preferences.tags,
       preferences.domains,
       preferences.customTags,
@@ -222,47 +336,56 @@ export default function FeederWorkspace({
     () =>
       rankHarvestCandidates(
         [
-          ...(payload?.sections.social ?? []).filter((item) => item.source !== 'YouTube'),
+          ...(payload?.sections.social ?? []),
           ...(payload?.sections.academic ?? []),
           ...(payload?.sections.opensource ?? []),
           ...socialImports.filter((item) => !['TikTok', 'Instagram', 'X'].includes(item.source)),
-        ],
+        ].filter(
+          (item) => !videoFetchStarted || item.source === 'YouTube' || item.source === 'Bilibili',
+        ),
         candidatePreferences,
         events,
-        { limit: 60, pool: true },
+        { limit: 300, pool: true },
       ),
-    [payload, socialImports, candidatePreferences, events],
+    [payload, socialImports, candidatePreferences, events, videoFetchStarted],
   );
   const publicCandidateCount =
-    (payload?.sections.social ?? []).filter((item) => item.source !== 'YouTube').length +
+    (payload?.sections.social ?? []).length +
     (payload?.sections.academic ?? []).length +
     (payload?.sections.opensource ?? []).length +
     socialImports.filter((item) => !['TikTok', 'Instagram', 'X'].includes(item.source)).length;
   const targetAverage = preferences.targetJevAverage ?? 8;
-  const targetAverageRef = useRef(targetAverage);
-  targetAverageRef.current = targetAverage;
   const goalTags = useMemo(
     () =>
-      searchInterests(preferences)
-        .map((interest) => bilingualInterestLabel(interest.labelEn, interest.labelZh))
-        .slice(0, 12),
-    [preferences],
+      searchTag
+        ? [searchTag.slice(0, 80)]
+        : searchInterests(preferences)
+            .map((interest) => bilingualInterestLabel(interest.labelEn, interest.labelZh))
+            .slice(0, 12),
+    [preferences, searchTag],
   );
   const goalKey = goalTags.join('\u0000');
-  const ratingContext = `${goalKey}\u0001${candidates.map((candidate) => `${candidate.key}\u0000${candidate.item.title}`).join('\u0001')}`;
+  const ratingContext = feedRatingContext(candidates, goalKey);
   const simulation = useMemo(
-    () => simulateFeed(candidates, ratingsRef.current, targetAverage),
+    () => simulateFeed(candidates, ratingsRef.current, targetAverage, candidates.length),
     // ratingRevision signals mutations to the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [candidates, targetAverage, ratingRevision],
   );
   useEffect(() => {
-    if (!loaded || page !== 'discover' || view !== 'feed' || !candidates.length || !goalTags.length)
-      return;
-    if (ratingContextRef.current !== ratingContext) {
+    if (!loaded || page !== 'discover' || !candidates.length || !goalTags.length) return;
+    if (ratingContextRef.current !== goalKey) {
       ratingsRef.current.clear();
-      ratingContextRef.current = ratingContext;
+      ratedTitlesRef.current.clear();
+      ratingContextRef.current = goalKey;
       setRatingRevision((value) => value + 1);
+    }
+    for (const candidate of candidates) {
+      const scoredTitle = ratedTitlesRef.current.get(candidate.key);
+      if (scoredTitle !== undefined && scoredTitle !== candidate.item.title) {
+        ratingsRef.current.delete(candidate.key);
+        ratedTitlesRef.current.delete(candidate.key);
+      }
     }
     let cancelled = false;
     const controller = new AbortController();
@@ -320,6 +443,7 @@ export default function FeederWorkspace({
                 throw new Error('Jev score unavailable');
               return {
                 key: candidate.key,
+                title: candidate.item.title,
                 rating: {
                   score: decision.relevanceScore,
                   confidence: decision.confidence,
@@ -334,10 +458,12 @@ export default function FeederWorkspace({
           }),
         );
         if (cancelled || controller.signal.aborted) break;
-        for (const result of results) if (result) ratingsRef.current.set(result.key, result.rating);
+        for (const result of results) {
+          if (!result) continue;
+          ratingsRef.current.set(result.key, result.rating);
+          ratedTitlesRef.current.set(result.key, result.title);
+        }
         setRatingRevision((value) => value + 1);
-        const next = simulateFeed(candidates, ratingsRef.current, targetAverageRef.current);
-        if (next.targetMet && next.items.length >= 12 && next.ratedCount >= 24) break;
       }
       if (!cancelled) {
         setScoring(false);
@@ -353,24 +479,138 @@ export default function FeederWorkspace({
     };
     // goalKey represents the selected tags and candidates represents the current eligible pool.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, page, view, ratingContext]);
+  }, [loaded, page, ratingContext, targetAverage]);
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle
-      ? simulation.items.filter(({ candidate }) =>
-          [
-            candidate.item.title,
-            candidate.item.summary,
-            candidate.item.author,
-            candidate.item.source,
-          ]
-            .join(' ')
-            .toLowerCase()
-            .includes(needle),
+    const needles = [query.trim().toLowerCase(), searchTag.trim().toLowerCase()].filter(Boolean);
+    const items = videoFetchStarted
+      ? [...simulation.items].sort((a, b) =>
+          (b.candidate.item.publishedAt ?? '').localeCompare(a.candidate.item.publishedAt ?? ''),
         )
       : simulation.items;
-  }, [simulation, query]);
+    if (!needles.length) return items;
+    return items.filter(({ candidate }) => {
+      const haystack = [
+        candidate.item.title,
+        candidate.item.summary,
+        candidate.item.author,
+        candidate.item.source,
+        candidate.item.tags.join(' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return needles.every((needle) => haystack.includes(needle));
+    });
+  }, [simulation, query, searchTag, videoFetchStarted]);
   const shown = visible.slice(0, displayCount);
+  const hasOlderPages = Object.values(videoPages).some((page) => Boolean(page?.cursor));
+  const loadOlderVideos = useCallback(async () => {
+    if (olderLoadingRef.current) return;
+    const available = (['Bilibili', 'YouTube'] as const).filter(
+      (source) => videoPages[source]?.cursor,
+    );
+    if (!available.length) return;
+    const source = available[nextVideoSourceRef.current % available.length];
+    nextVideoSourceRef.current += 1;
+    const page = videoPages[source];
+    if (!page?.cursor) return;
+    olderLoadingRef.current = true;
+    setLoadingOlder(true);
+    setOlderError('');
+    try {
+      const params = new URLSearchParams({ source, cursor: page.cursor });
+      page.tags.forEach((tag) => params.append('tag', tag));
+      page.localizedTags.forEach((tag) => params.append('tagZh', tag));
+      const response = await fetch(`/api/harvest?${params}`, { cache: 'no-store' });
+      const incoming = await readApiData<HarvestPayload>(response);
+      if (incoming.health.some((entry) => entry.source === source && entry.state === 'error'))
+        throw new Error('Video search failed');
+      setPayload((current) => appendHarvestPayload(current, incoming));
+      setVideoPages((current) => ({
+        ...current,
+        [source]: { ...page, cursor: incoming.nextCursor ?? null },
+      }));
+    } catch {
+      setOlderError('Could not load older videos. Try again.');
+    } finally {
+      olderLoadingRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [videoPages]);
+  useEffect(() => {
+    const target = loadSentinelRef.current;
+    if (
+      !videoFetchStarted ||
+      !target ||
+      !hasOlderPages ||
+      olderError ||
+      sourceVideoLoading ||
+      loading
+    )
+      return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) {
+          sentinelVisibleRef.current = false;
+          return;
+        }
+        if (sentinelVisibleRef.current || olderLoadingRef.current) return;
+        sentinelVisibleRef.current = true;
+        if (visible.length > displayCount) setDisplayCount((count) => count + 20);
+        else void loadOlderVideos();
+      },
+      { rootMargin: '0px 0px 280px 0px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [
+    videoFetchStarted,
+    hasOlderPages,
+    olderError,
+    sourceVideoLoading,
+    loading,
+    visible.length,
+    displayCount,
+    loadOlderVideos,
+  ]);
+  useEffect(() => {
+    if (page !== 'discover' || !videoFetchStarted) return;
+    let previousY = window.scrollY;
+    let downwardDistance = 0;
+    let upwardDistance = 0;
+    const onScroll = () => {
+      const currentY = window.scrollY;
+      const delta = currentY - previousY;
+      previousY = currentY;
+      if (currentY < 24) {
+        downwardDistance = 0;
+        upwardDistance = 0;
+        setIsCompact(false);
+        return;
+      }
+      if (performance.now() < scrollIgnoreUntilRef.current || Math.abs(delta) < 2) return;
+      if (delta > 0) {
+        downwardDistance += delta;
+        upwardDistance = 0;
+        if (!isCompact && currentY > 120 && downwardDistance >= 48) {
+          downwardDistance = 0;
+          scrollIgnoreUntilRef.current = performance.now() + 260;
+          setCompactPanel(null);
+          setIsCompact(true);
+        }
+      } else {
+        upwardDistance -= delta;
+        downwardDistance = 0;
+        if (isCompact && upwardDistance >= 40) {
+          upwardDistance = 0;
+          scrollIgnoreUntilRef.current = performance.now() + 260;
+          setCompactPanel(null);
+          setIsCompact(false);
+        }
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [page, videoFetchStarted, isCompact]);
   const dismissed = events
     .filter((event) => event.signal === 'hide' || event.signal === 'not_interested')
     .slice(-5)
@@ -379,8 +619,8 @@ export default function FeederWorkspace({
     ? 'Scoring'
     : !loaded
       ? 'Fetch candidates'
-      : candidates.length < 5
-        ? 'Candidates insufficient'
+      : candidates.length === 0
+        ? 'No candidates'
         : simulation.targetMet
           ? 'Target reached'
           : scoringError && simulation.ratedCount === 0
@@ -392,6 +632,28 @@ export default function FeederWorkspace({
     ? Math.round((simulation.ratedCount / candidates.length) * 100)
     : 0;
   const selectedTags = catalog.filter((tag) => preferences.tags.includes(tag.id));
+  const showSources = sourcesExpanded || isCompact;
+  const refreshLabel = loading
+    ? 'Fetching…'
+    : searchTag
+      ? 'Refresh search'
+      : loaded
+        ? 'Refresh sources'
+        : 'Fetch public sources';
+  const openForYou = () => {
+    if (isCompact) {
+      setCompactPanel((current) => (current === 'forYou' ? null : 'forYou'));
+    } else {
+      setSourcesExpanded(false);
+    }
+  };
+  const openSources = () => {
+    if (isCompact) {
+      setCompactPanel((current) => (current === 'sources' ? null : 'sources'));
+    } else {
+      setSourcesExpanded((current) => !current);
+    }
+  };
   function record(item: HarvestItem, signal: FeederSignal): FeederEvent {
     const event: FeederEvent = {
       id: crypto.randomUUID(),
@@ -507,387 +769,589 @@ export default function FeederWorkspace({
   }
 
   return (
-    <div className={styles.workspace}>
+    <div
+      className={`${styles.workspace} ${showSources ? styles.workspaceExpanded : ''} ${videoFetchStarted ? styles.workspaceVideoActive : ''} ${isCompact ? styles.workspaceVideoMode : ''}`}
+    >
       <header className={styles.header}>
         <span className={styles.eyebrow}>YOUR OWN DISCOVERY LAYER</span>
         <h1>Discover</h1>
         <div className={styles.toolbar}>
-          <div className={styles.tabs} role="tablist" aria-label="Discover view">
-            <button aria-selected={view === 'feed'} role="tab" onClick={() => setView('feed')}>
-              For you
+          <div
+            className={styles.tabs}
+            role={isCompact ? 'group' : 'tablist'}
+            aria-label="Discover view"
+          >
+            <button
+              aria-selected={isCompact ? undefined : !sourcesExpanded}
+              aria-pressed={isCompact ? compactPanel === 'forYou' : undefined}
+              role={isCompact ? undefined : 'tab'}
+              aria-label="For you"
+              title="For you"
+              onClick={openForYou}
+            >
+              <Compass size={18} aria-hidden="true" />
+              <span className={styles.tabLabel}>For you</span>
             </button>
             <button
-              aria-selected={view === 'sources'}
-              role="tab"
-              onClick={() => setView('sources')}
+              aria-selected={isCompact ? undefined : sourcesExpanded}
+              aria-pressed={isCompact ? compactPanel === 'sources' : undefined}
+              aria-expanded={isCompact ? compactPanel === 'sources' : sourcesExpanded}
+              role={isCompact ? undefined : 'tab'}
+              aria-label="Sources"
+              title="Sources"
+              onClick={openSources}
             >
-              Sources
+              <Layers3 size={18} aria-hidden="true" />
+              <span className={styles.tabLabel}>Sources</span>
             </button>
           </div>
-          {view === 'feed' && (
+          <form
+            className={styles.searchForm}
+            role="search"
+            aria-label="Search public sources"
+            onSubmit={submitSearch}
+          >
+            <label className={styles.searchField}>
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search public sources"
+                aria-label="Search public sources by tag"
+                maxLength={80}
+              />
+              {searchTag && (
+                <button
+                  type="button"
+                  className={styles.searchClear}
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </label>
             <button
+              type="submit"
               className={styles.secondary}
-              onClick={() => void refresh(true)}
-              disabled={loading}
+              disabled={loading || !searchInput.trim()}
             >
-              <RotateCcw size={15} />{' '}
-              {loading ? 'Fetching…' : loaded ? 'Refresh sources' : 'Fetch public sources'}
+              <Search size={15} /> Search
             </button>
-          )}
+          </form>
+          <InterestIntroTarget
+            active={guideStep === 5}
+            step={6}
+            instruction={
+              loading
+                ? 'Loading your sources… Setup finishes when the request succeeds.'
+                : `Click ${refreshLabel} to load your selected sources and finish setup.`
+            }
+            className={styles.guideRefresh}
+          >
+            <button
+              className={`${styles.secondary} ${styles.refreshButton}`}
+              onClick={() => void refresh(true, { completeGuide: true })}
+              disabled={loading}
+              aria-label={refreshLabel}
+              title={refreshLabel}
+            >
+              <RotateCcw size={18} aria-hidden="true" />
+              <span className={styles.actionLabel}>{refreshLabel}</span>
+            </button>
+          </InterestIntroTarget>
         </div>
-      </header>
-      {view === 'feed' && (
-        <InterestIntro className={styles.interestsPanel}>
-          <div className={styles.interestsHeading}>
-            <div>
-              <span className={styles.eyebrow}>MY INTERESTS</span>
-              <h2>Your interests</h2>
-            </div>
-            <InterestIntroTarget>
-              <button className={styles.secondary} onClick={onEditInterests}>
-                <SlidersHorizontal size={16} /> Manage interests
-              </button>
-            </InterestIntroTarget>
+        {searchTag && (
+          <div className={styles.searchBanner} role="status">
+            <span>
+              Searching public sources for <strong>{searchTag}</strong>. This search is not saved to
+              your interests.
+            </span>
+            <button type="button" className={styles.secondary} onClick={clearSearch}>
+              <X size={14} /> Clear search
+            </button>
           </div>
-          <div className={styles.domainList}>
-            {domains
-              .filter((domain) => preferences.domains.includes(domain.id))
-              .map((domain, index) => (
-                <span key={domain.id}>
-                  <i
-                    className={styles.domainDot}
-                    style={{
-                      backgroundColor: ['#a6b48a', '#dfbd91', '#aec0cb', '#aa9ab7'][index % 4],
+        )}
+      </header>
+      <div className={showSources ? styles.discoverSplit : undefined}>
+        <div className={showSources ? styles.discoverMain : undefined}>
+          <div className={styles.discoverSettings} data-open={compactPanel === 'forYou'}>
+            <InterestIntro className={styles.interestsPanel}>
+              <div className={styles.interestsHeading}>
+                <div>
+                  <span className={styles.eyebrow}>MY INTERESTS</span>
+                  <h2>Your interests</h2>
+                </div>
+                <InterestIntroTarget
+                  active={guideStep === 0}
+                  step={1}
+                  instruction="Click Expand to open your interest settings."
+                >
+                  <button
+                    type="button"
+                    className={styles.expandButton}
+                    aria-expanded={interestsDetailsOpen}
+                    aria-controls={interestsDetailsId}
+                    onClick={() => {
+                      if (!interestsDetailsOpen) onGuideAdvance(0);
+                      setInterestsDetailsOpen((open) => !open);
+                    }}
+                  >
+                    <ChevronDown size={16} aria-hidden="true" />
+                    {interestsDetailsOpen ? 'Collapse' : 'Expand'}
+                  </button>
+                </InterestIntroTarget>
+              </div>
+              <div
+                id={interestsDetailsId}
+                className={styles.cardDetails}
+                hidden={!interestsDetailsOpen}
+              >
+                <div className={styles.manageInterestsRow}>
+                  <InterestIntroTarget
+                    active={guideStep === 1}
+                    step={2}
+                    instruction="Click Manage interests to choose what you want to see."
+                  >
+                    <button
+                      className={styles.secondary}
+                      onClick={() => {
+                        onGuideAdvance(1);
+                        onEditInterests();
+                      }}
+                    >
+                      <SlidersHorizontal size={16} /> Manage interests
+                    </button>
+                  </InterestIntroTarget>
+                </div>
+                <div className={styles.domainList}>
+                  {domains
+                    .filter((domain) => preferences.domains.includes(domain.id))
+                    .map((domain, index) => (
+                      <span key={domain.id}>
+                        <i
+                          className={styles.domainDot}
+                          style={{
+                            backgroundColor: ['#a6b48a', '#dfbd91', '#aec0cb', '#aa9ab7'][
+                              index % 4
+                            ],
+                          }}
+                        />
+                        {domain.labelEn}
+                      </span>
+                    ))}
+                </div>
+                <div className={styles.chips}>
+                  {selectedTags.map((tag) => (
+                    <span key={tag.id}>{tag.labelEn}</span>
+                  ))}
+                  {preferences.customTags.map((tag) => (
+                    <span key={tag.id}>{tag.labelEn}</span>
+                  ))}
+                  {!selectedTags.length &&
+                    !preferences.customTags.length &&
+                    preferences.domains.length > 0 && (
+                      <span>Using selected areas until you add specific tags</span>
+                    )}
+                </div>
+                <fieldset className={styles.matchRules}>
+                  <legend>Content matching</legend>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={preferences.onlySelectedTags === true}
+                      onChange={(event) => onOnlySelectedTagsChange(event.target.checked)}
+                    />
+                    Include any selected topic
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={preferences.requireAllSelectedTags === true}
+                      onChange={(event) =>
+                        onInterestRuleChange('requireAllSelectedTags', event.target.checked)
+                      }
+                    />
+                    Include all selected topics
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={preferences.excludeUnselectedTags === true}
+                      onChange={(event) =>
+                        onInterestRuleChange('excludeUnselectedTags', event.target.checked)
+                      }
+                    />
+                    Exclude unselected topics
+                  </label>
+                </fieldset>
+                <p className={styles.matchHint}>
+                  Uses available topic tags. Explicit exclusions always apply.
+                  {loaded &&
+                    ` ${candidates.length} of ${publicCandidateCount} fetched items are in this prioritized scoring batch (maximum 300).`}
+                </p>
+              </div>
+            </InterestIntro>
+            <section className={styles.scorePanel} aria-label="Feed relevance">
+              <div className={styles.scorePanelTop}>
+                <div>
+                  <span className={styles.eyebrow}>YOUR FEED</span>
+                  <h2>Relevance</h2>
+                </div>
+                <button
+                  type="button"
+                  className={styles.expandButton}
+                  aria-expanded={relevanceDetailsOpen}
+                  aria-controls={relevanceDetailsId}
+                  onClick={() => setRelevanceDetailsOpen((open) => !open)}
+                >
+                  <ChevronDown size={16} aria-hidden="true" />
+                  {relevanceDetailsOpen ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+              <InterestIntroTarget
+                active={guideStep === 4}
+                step={5}
+                instruction="Move Relevance to choose how closely the feed should match your interests."
+                className={styles.guideSlider}
+              >
+                <label className={styles.scoreSlider}>
+                  <span>Relevance: {targetAverage} / 10</span>
+                  <input
+                    type="range"
+                    aria-label="Relevance"
+                    min="1"
+                    max="10"
+                    step="1"
+                    value={targetAverage}
+                    onChange={(event) => {
+                      onTargetJevAverageChange(Number(event.target.value));
+                      onGuideAdvance(4);
                     }}
                   />
-                  {domain.labelEn}
-                </span>
-              ))}
-          </div>
-          <div className={styles.chips}>
-            {selectedTags.map((tag) => (
-              <span key={tag.id}>{tag.labelEn}</span>
-            ))}
-            {preferences.customTags.map((tag) => (
-              <span key={tag.id}>{tag.labelEn}</span>
-            ))}
-            {!selectedTags.length &&
-              !preferences.customTags.length &&
-              preferences.domains.length > 0 && (
-                <span>Using selected areas until you add specific tags</span>
-              )}
-          </div>
-          <fieldset className={styles.matchRules}>
-            <legend>Content matching</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={preferences.onlySelectedTags === true}
-                onChange={(event) => onOnlySelectedTagsChange(event.target.checked)}
-              />
-              Include any selected topic
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={preferences.requireAllSelectedTags === true}
-                onChange={(event) =>
-                  onInterestRuleChange('requireAllSelectedTags', event.target.checked)
-                }
-              />
-              Include all selected topics
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={preferences.excludeUnselectedTags === true}
-                onChange={(event) =>
-                  onInterestRuleChange('excludeUnselectedTags', event.target.checked)
-                }
-              />
-              Exclude unselected topics
-            </label>
-          </fieldset>
-          <p className={styles.matchHint}>
-            Uses available topic tags. Explicit exclusions always apply.
-            {loaded &&
-              ` ${candidates.length} of ${publicCandidateCount} fetched items are in this prioritized scoring batch (maximum 60).`}
-          </p>
-        </InterestIntro>
-      )}
-      {view === 'sources' ? (
-        <SourceBoards
-          locale={locale}
-          interestLabels={interests.map((interest) => interest.labelEn)}
-          localizedInterestLabels={interests.map((interest) => interest.labelZh)}
-          preferences={preferences}
-          initialPayload={payload}
-          onHarvested={(incoming) => {
-            setPayload((current) => mergeHarvestPayload(current, incoming));
-            setLoaded(true);
-          }}
-          onSocialImport={(item) => {
-            setSocialImports((current) => [
-              item,
-              ...current.filter((entry) => entry.url !== item.url),
-            ]);
-            setLoaded(true);
-          }}
-          t={(zh, en) => t(zh, en, locale)}
-          savedResourceIds={resources.map((resource) => resource.id)}
-          onSaveResource={save}
-          onEditInterests={onEditInterests}
-          onRelaxMatching={() => {
-            onOnlySelectedTagsChange(false);
-            onInterestRuleChange('requireAllSelectedTags', false);
-            onInterestRuleChange('excludeUnselectedTags', false);
-          }}
-        />
-      ) : (
-        <>
-          <section className={styles.scorePanel} aria-label="Feed relevance">
-            <div className={styles.scorePanelTop}>
-              <div>
-                <span className={styles.eyebrow}>YOUR FEED</span>
-                <h2>Relevance</h2>
-              </div>
-              <strong className={styles.scoreState}>{scoringState}</strong>
-            </div>
-            <label className={styles.scoreSlider}>
-              <span>Relevance: {targetAverage} / 10</span>
-              <input
-                type="range"
-                aria-label="Relevance"
-                min="1"
-                max="10"
-                step="1"
-                value={targetAverage}
-                onChange={(event) => onTargetJevAverageChange(Number(event.target.value))}
-              />
-              <span className={styles.rangeEndpoints}>
-                <span>Lower · Broader</span>
-                <span>Higher · More focused</span>
-              </span>
-            </label>
-            <p>
-              Higher: closer to your tags, with fewer and narrower results. Lower: more related
-              topics, though some results may drift from your tags.
-            </p>
-            <p>Actual average: {simulation.average?.toFixed(2) ?? '—'} / 10</p>
-            <div className={styles.scoreProgressText}>
-              {simulation.ratedCount} of {candidates.length} candidates scored ({ratedPercent}%) ·{' '}
-              {simulation.items.length} shown
-              {simulation.lowConfidenceCount > 0 &&
-                ` · ${simulation.lowConfidenceCount} low confidence excluded`}
-            </div>
-            <progress
-              className={styles.scoreProgress}
-              max={Math.max(1, candidates.length)}
-              value={simulation.ratedCount}
-              aria-label="Jev scoring progress"
-            />
-          </section>
-          <div className={styles.feedControls}>
-            <label>
-              <Compass size={17} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Filter this feed"
-                aria-label="Filter this feed"
-              />
-            </label>
-          </div>
-          <div className={styles.simulationStatus} role="status">
-            {scoringState}
-            {scoringDone &&
-              !simulation.targetMet &&
-              candidates.length >= 5 &&
-              ': available confident scores cannot meet this target.'}
-          </div>
-          {scoringError && (
-            <div className={styles.warning} role="alert">
-              {scoringError}
-            </div>
-          )}
-          {error && (
-            <div className={styles.warning} role="alert">
-              {error} Saved links remain available.
-            </div>
-          )}
-          {payload?.warnings.length ? (
-            <div className={styles.warning}>
-              Some sources could not refresh; other sources are still shown.
-            </div>
-          ) : null}
-          {dismissed.length > 0 && (
-            <div className={styles.undo}>
-              <span>Recently hidden</span>
-              <div className={styles.undoItems}>
-                {dismissed.map((event) => (
-                  <button key={event.id} onClick={() => onUndoEvent(event.id)}>
-                    <RotateCcw size={14} /> Restore {new URL(event.itemKey).hostname}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {loading && !payload ? <div className={styles.empty}>Loading public sources…</div> : null}
-          {!loading && !loaded && !goalTags.length && (
-            <div className={styles.empty}>
-              Choose interests to score a personal feed, or browse public items in Sources.
-              <button className={styles.secondary} onClick={onEditInterests}>
-                Choose interests
-              </button>
-            </div>
-          )}
-          {!loading && !loaded && goalTags.length > 0 && (
-            <div className={styles.empty}>
-              Fetch public sources above, or choose one in Sources to begin.
-            </div>
-          )}
-          {!loading && loaded && candidates.length === 0 ? (
-            <div className={styles.empty}>
-              No matching public candidates right now. Try adjusting your interests or inspect the
-              source boards. Feeder does not invent matches.
-            </div>
-          ) : null}
-          {!loading && loaded && candidates.length > 0 && !scoring && visible.length === 0 ? (
-            <div className={styles.empty}>No confident Jev scores are available for this feed.</div>
-          ) : null}
-          {scoring && shown.length === 0 && (
-            <div className={styles.scoringPlaceholder} aria-live="polite">
-              <span className={styles.skeleton} />
-              <span>Scoring candidate titles with Jev…</span>
-            </div>
-          )}
-          <div className={styles.cards}>
-            {shown.map(({ candidate, rating }) => {
-              const { item } = candidate;
-              const saved = savedKeys.has(candidate.key);
-              return (
-                <article className={styles.card} key={candidate.key}>
-                  <div className={styles.cardMeta}>
-                    <span>{item.source}</span>
-                    <span>·</span>
-                    <span>{item.author || 'Creator unavailable'}</span>
-                    {item.publishedAt && (
-                      <>
-                        <span>·</span>
-                        <time dateTime={item.publishedAt}>
-                          {new Date(item.publishedAt).toLocaleDateString('en-US')}
-                        </time>
-                      </>
-                    )}
-                  </div>
-                  {item.source === 'Bilibili' ? (
-                    <BilibiliVideo item={item} />
-                  ) : (
-                    item.imageUrl && (
-                      <img className={styles.cover} src={item.imageUrl} alt="" loading="lazy" />
-                    )
+                  {relevanceDetailsOpen && (
+                    <span className={styles.rangeEndpoints}>
+                      <span>Lower · Broader</span>
+                      <span>Higher · More focused</span>
+                    </span>
                   )}
-                  <h2>{item.title}</h2>
-                  {item.summary && <p>{item.summary}</p>}
-                  <div className={styles.chips}>
-                    {item.tags.slice(0, 4).map((tag) => (
-                      <span key={tag}>{tag}</span>
-                    ))}
-                    {candidate.exploratory && <span>Explore</span>}
-                  </div>
-                  <div className={styles.ratingBadge}>
-                    <strong>Jev {rating.score.toFixed(1)} / 10</strong>
-                    <span>Confidence {Math.round(rating.confidence * 100)}%</span>
-                    <progress max="1" value={rating.confidence} aria-label="Jev confidence" />
-                  </div>
-                  <details className={styles.why}>
-                    <summary>Why this is here</summary>
-                    <ul>
-                      {candidate.reasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
-                    <small>
-                      Title relevance with {Math.round(rating.confidence * 100)}% confidence. Feeder
-                      simulation, not a source-platform score.
-                    </small>
-                  </details>
-                  <div className={styles.actions}>
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => record(item, 'open')}
-                    >
-                      Open source <ArrowUpRight size={15} />
-                    </a>
-                    <button onClick={() => save(item)} disabled={saved}>
-                      <Bookmark size={15} /> {saved ? 'Saved' : 'Save to library'}
-                    </button>
-                    <details className={styles.moreActions}>
-                      <summary>More actions</summary>
-                      <div>
-                        <button
-                          onClick={(event) => {
-                            record(item, 'hide');
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                          }}
-                          aria-label={`Hide ${item.title}`}
-                        >
-                          Hide
-                        </button>
-                        <button
-                          onClick={(event) => {
-                            record(item, 'not_interested');
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                          }}
-                          aria-label={`Not interested in ${item.title}`}
-                        >
-                          Not interested
-                        </button>
-                      </div>
-                    </details>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-          {visible.length > shown.length && (
-            <button
-              className={styles.loadMore}
-              onClick={() => setDisplayCount((count) => count + 20)}
-            >
-              Show more · {visible.length - shown.length} remaining
-            </button>
-          )}
-          {(payload?.sections.social ?? []).some((item) => item.source === 'YouTube') && (
-            <section className={styles.youtubeResults} aria-label="YouTube videos">
-              <h2>YouTube videos</h2>
-              <p>Official search results · outside the Jev average</p>
-              <div className={styles.cards}>
-                {(payload?.sections.social ?? [])
-                  .filter(
-                    (item) =>
-                      item.source === 'YouTube' && !preferences.blockedSources.includes('YouTube'),
-                  )
-                  .slice(0, 6)
-                  .map((item) => (
-                    <article className={styles.card} key={item.id}>
-                      <YouTubeVideo item={item} />
-                      <div className={styles.cardMeta}>YouTube · {item.author}</div>
-                      <h2>{item.title}</h2>
-                      <div className={styles.actions}>
-                        <a href={item.url} target="_blank" rel="noreferrer">
-                          Open on YouTube <ArrowUpRight size={15} />
-                        </a>
-                      </div>
-                    </article>
-                  ))}
+                </label>
+              </InterestIntroTarget>
+              <div
+                id={relevanceDetailsId}
+                className={styles.cardDetails}
+                hidden={!relevanceDetailsOpen}
+              >
+                <strong className={styles.scoreState}>{scoringState}</strong>
+                <p>
+                  Only items with a confident Jev score at or above {targetAverage} are shown.
+                  Higher means fewer, closer matches.
+                </p>
+                <p>Actual average: {simulation.average?.toFixed(2) ?? '—'} / 10</p>
+                <div className={styles.scoreProgressText}>
+                  {simulation.ratedCount} of {candidates.length} candidates scored ({ratedPercent}%)
+                  · {simulation.items.length} shown
+                  {simulation.lowConfidenceCount > 0 &&
+                    ` · ${simulation.lowConfidenceCount} low confidence excluded`}
+                </div>
+                <progress
+                  className={styles.scoreProgress}
+                  max={Math.max(1, candidates.length)}
+                  value={simulation.ratedCount}
+                  aria-label="Jev scoring progress"
+                />
               </div>
             </section>
-          )}
-        </>
-      )}
+          </div>
+          <div className={styles.discoverResults}>
+            <div className={styles.feedControls}>
+              <label>
+                <Compass size={17} />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Filter this feed"
+                  aria-label="Filter this feed"
+                />
+              </label>
+              {shown.some(({ candidate }) =>
+                ['YouTube', 'Bilibili'].includes(candidate.item.source),
+              ) && (
+                <label>
+                  Videos per row
+                  <select
+                    aria-label="Videos per row"
+                    value={videoColumns}
+                    onChange={(event) => setVideoColumns(event.target.value as typeof videoColumns)}
+                  >
+                    <option value="auto">Auto</option>
+                    {[1, 2, 3, 4].map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <div className={styles.simulationStatus} role="status">
+              {scoringState}
+              {scoringDone &&
+                !simulation.targetMet &&
+                candidates.length > 0 &&
+                ': available confident scores cannot meet this target.'}
+            </div>
+            {scoringError && (
+              <div className={styles.warning} role="alert">
+                {scoringError}
+              </div>
+            )}
+            {error && (
+              <div className={styles.warning} role="alert">
+                {error} Saved links remain available.
+              </div>
+            )}
+            {payload?.warnings.length ? (
+              <div className={styles.warning}>
+                Some sources could not refresh; other sources are still shown.
+              </div>
+            ) : null}
+            {dismissed.length > 0 && (
+              <div className={styles.undo}>
+                <span>Recently hidden</span>
+                <div className={styles.undoItems}>
+                  {dismissed.map((event) => (
+                    <button key={event.id} onClick={() => onUndoEvent(event.id)}>
+                      <RotateCcw size={14} /> Restore {new URL(event.itemKey).hostname}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {loading && !payload ? (
+              <div className={styles.empty}>Loading public sources…</div>
+            ) : null}
+            {!loading && !loaded && !goalTags.length && (
+              <div className={styles.empty}>
+                Choose interests to score a personal feed, then choose a source to fetch.
+                <button className={styles.secondary} onClick={onEditInterests}>
+                  Choose interests
+                </button>
+              </div>
+            )}
+            {!loading && !sourceVideoLoading && !loaded && goalTags.length > 0 && (
+              <div className={styles.empty}>
+                Fetch public sources above, or choose one in Sources to begin.
+              </div>
+            )}
+            {!loading && loaded && candidates.length === 0 ? (
+              <div className={styles.empty}>
+                {searchTag
+                  ? `No public candidates matched "${searchTag}". Try a different search or clear it to return to your interests.`
+                  : 'No matching public candidates right now. Try adjusting your interests or inspect the source boards. Feeder does not invent matches.'}
+              </div>
+            ) : null}
+            {!loading && loaded && candidates.length > 0 && !scoring && visible.length === 0 ? (
+              <div className={styles.empty}>
+                No confident Jev scores meet your Relevance setting.
+              </div>
+            ) : null}
+            {scoring && shown.length === 0 && (
+              <div className={styles.scoringPlaceholder} aria-live="polite">
+                <span className={styles.skeleton} />
+                <span>Scoring candidate titles with Jev…</span>
+              </div>
+            )}
+            <div
+              className={
+                shown.some(({ candidate }) =>
+                  ['YouTube', 'Bilibili'].includes(candidate.item.source),
+                )
+                  ? styles.videoCards
+                  : styles.cards
+              }
+              data-columns={videoColumns}
+            >
+              {shown.map(({ candidate, rating }) => {
+                const { item } = candidate;
+                const saved = savedKeys.has(candidate.key);
+                return (
+                  <article className={styles.card} key={candidate.key}>
+                    <div className={styles.cardMeta}>
+                      <span>{item.source}</span>
+                      <span>·</span>
+                      <span>{item.author || 'Creator unavailable'}</span>
+                      {item.publishedAt && (
+                        <>
+                          <span>·</span>
+                          <time dateTime={item.publishedAt}>
+                            {new Date(item.publishedAt).toLocaleDateString('en-US')}
+                          </time>
+                        </>
+                      )}
+                    </div>
+                    {item.source === 'YouTube' ? (
+                      <YouTubeVideo item={item} />
+                    ) : item.source === 'Bilibili' ? (
+                      <BilibiliVideo item={item} />
+                    ) : (
+                      item.imageUrl && (
+                        <img className={styles.cover} src={item.imageUrl} alt="" loading="lazy" />
+                      )
+                    )}
+                    <h2>{item.title}</h2>
+                    {item.summary && <p>{item.summary}</p>}
+                    <div className={styles.chips}>
+                      {item.tags.slice(0, 4).map((tag) => (
+                        <span key={tag}>{tag}</span>
+                      ))}
+                      {candidate.exploratory && <span>Explore</span>}
+                    </div>
+                    <div className={styles.ratingBadge}>
+                      <strong>Jev {rating.score.toFixed(1)} / 10</strong>
+                      <span>Confidence {Math.round(rating.confidence * 100)}%</span>
+                      <progress max="1" value={rating.confidence} aria-label="Jev confidence" />
+                    </div>
+                    <details className={styles.why}>
+                      <summary>Why this is here</summary>
+                      <ul>
+                        {candidate.reasons.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                      <small>
+                        Title relevance with {Math.round(rating.confidence * 100)}% confidence.
+                        Feeder simulation, not a source-platform score.
+                      </small>
+                    </details>
+                    <div className={styles.actions}>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() => record(item, 'open')}
+                      >
+                        Open source <ArrowUpRight size={15} />
+                      </a>
+                      <button type="button" onClick={() => save(item)} disabled={saved}>
+                        <Bookmark size={15} /> {saved ? 'Saved' : 'Save to library'}
+                      </button>
+                      <details className={styles.moreActions}>
+                        <summary>More actions</summary>
+                        <div>
+                          <button
+                            onClick={(event) => {
+                              record(item, 'hide');
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            aria-label={`Hide ${item.title}`}
+                          >
+                            Hide
+                          </button>
+                          <button
+                            onClick={(event) => {
+                              record(item, 'not_interested');
+                              event.currentTarget.closest('details')?.removeAttribute('open');
+                            }}
+                            aria-label={`Not interested in ${item.title}`}
+                          >
+                            Not interested
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            {visible.length > shown.length && (
+              <button
+                className={styles.loadMore}
+                onClick={() => setDisplayCount((count) => count + 20)}
+              >
+                Show more · {visible.length - shown.length} remaining
+              </button>
+            )}
+            {videoFetchStarted && (
+              <div className={styles.olderVideos} ref={loadSentinelRef} aria-live="polite">
+                {loading || sourceVideoLoading || loadingOlder ? (
+                  <span>Finding older videos…</span>
+                ) : olderError ? (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    onClick={() => void loadOlderVideos()}
+                  >
+                    {olderError}
+                  </button>
+                ) : hasOlderPages ? (
+                  <button
+                    type="button"
+                    className={styles.secondary}
+                    onClick={() => void loadOlderVideos()}
+                  >
+                    Load older videos
+                  </button>
+                ) : (
+                  <span>All available video pages loaded.</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {showSources && (
+          <aside
+            className={styles.discoverSources}
+            aria-label="Sources"
+            data-open={compactPanel === 'sources'}
+          >
+            <SourceBoards
+              locale={locale}
+              interestLabels={interests.map((interest) => interest.labelEn)}
+              localizedInterestLabels={interests.map((interest) => interest.labelZh)}
+              preferences={preferences}
+              initialPayload={payload}
+              onHarvested={(incoming, append, source) => {
+                setPayload((current) =>
+                  append
+                    ? appendHarvestPayload(current, incoming)
+                    : mergeHarvestPayload(current, incoming),
+                );
+                setLoaded(true);
+                if (source === 'YouTube' || source === 'Bilibili') {
+                  setVideoPages((current) => ({
+                    ...current,
+                    [source]: {
+                      cursor: incoming.nextCursor ?? null,
+                      tags: interests.slice(0, 2).map((interest) => interest.labelEn),
+                      localizedTags: interests.slice(0, 2).map((interest) => interest.labelZh),
+                    },
+                  }));
+                }
+              }}
+              onSocialImport={(item) => {
+                setSocialImports((current) => [
+                  item,
+                  ...current.filter((entry) => entry.url !== item.url),
+                ]);
+                setLoaded(true);
+              }}
+              t={(zh, en) => t(zh, en, locale)}
+              onEditInterests={onEditInterests}
+              onVideoFetchStart={(source) => {
+                setVideoFetchStarted(true);
+                setIsCompact(false);
+                setSourceVideoLoading(true);
+                setCompactPanel(null);
+                setOlderError('');
+                setVideoPages((current) => ({ ...current, [source]: undefined }));
+              }}
+              onVideoFetchEnd={() => setSourceVideoLoading(false)}
+            />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

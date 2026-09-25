@@ -20,11 +20,18 @@ export async function GET(request: Request) {
   if (requestedSource !== null && !LIVE_SOURCES.includes(requestedSource as LiveSource)) {
     return apiError(400, 'INVALID_SOURCE', 'Unknown public source.');
   }
+  const cursor = url.searchParams.get('cursor');
+  if (
+    cursor !== null &&
+    (cursor.length > 2048 || !['YouTube', 'Bilibili'].includes(requestedSource ?? ''))
+  )
+    return apiError(400, 'INVALID_CURSOR', 'Video cursor requires a video source.');
   const payload = await harvestPublicSources(
     forceRefresh,
     tags,
     requestedSource === null ? undefined : (requestedSource as LiveSource),
     localizedTags,
+    cursor ?? undefined,
   );
   return apiSuccess(payload, {
     headers: {

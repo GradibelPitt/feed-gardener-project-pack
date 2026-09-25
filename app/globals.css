@@ -26,13 +26,6 @@
   font-display: swap;
   src: url(/fonts/dm-sans-3.ttf) format('truetype');
 }
-@font-face {
-  font-family: 'Libre Caslon Display';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url(/fonts/libre-caslon-4.ttf) format('truetype');
-}
 :root {
   --bg: #f7f8f5;
   --paper: #fff;
@@ -41,9 +34,68 @@
   --green: #3f674d;
   --line: #e6e9e2;
   --sage: #edf2e7;
-  --serif: 'Libre Caslon Display', Georgia, serif;
   --font:
     'DM Sans', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  /* Motion-driven system (ui-ux-pro-max, style #15) */
+  --dur-instant: 120ms;
+  --dur-fast: 200ms;
+  --dur-base: 320ms;
+  --dur-slow: 480ms;
+  --dur-scene: 700ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-out-back: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Unified type scale (px, DM Sans metrics) */
+  --fs-3xs: 9px;
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-body: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fs-3xl: 30px;
+  --fs-display: clamp(34px, 4vw, 52px);
+
+  /* Unified button surface */
+  --btn-radius-pill: 999px;
+  --btn-radius-lg: 14px;
+  --btn-radius-md: 10px;
+  --btn-radius-sm: 8px;
+  --btn-pad-y: 10px;
+  --btn-pad-x: 16px;
+  --btn-min-h: 40px;
+  --btn-shadow-rest: 0 1px 0 rgba(37, 57, 46, 0.04);
+  --btn-shadow-hover: 0 8px 22px -10px rgba(63, 103, 77, 0.35);
+  --btn-shadow-active: 0 2px 6px -4px rgba(37, 57, 46, 0.4);
+  --btn-lift: -1.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+    --dur-scene: 0ms;
+    --btn-lift: 0px;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html {
+  scroll-behavior: smooth;
 }
 * {
   box-sizing: border-box;
@@ -53,8 +105,10 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--fs-body);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 button,
 input,
@@ -92,10 +146,22 @@ input:focus-visible {
 }
 button {
   transition:
-    background 0.18s,
-    color 0.18s,
-    box-shadow 0.18s,
-    transform 0.18s;
+    background var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-expo),
+    filter var(--dur-base) var(--ease-out-soft);
+  will-change: transform;
+}
+button:hover:not(:disabled) {
+  transform: translateY(var(--btn-lift));
+}
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+  transition-duration:
+    var(--dur-instant), var(--dur-instant), var(--dur-instant), var(--dur-instant),
+    var(--dur-instant), var(--dur-instant);
 }
 svg {
   flex-shrink: 0;
@@ -206,7 +272,7 @@ a {
   letter-spacing: -0.8px;
 }
 .onboarding-brand i {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 23px;
   font-style: normal;
   font-weight: 400;
@@ -276,7 +342,7 @@ a {
   text-underline-offset: 4px;
 }
 .onboarding-hero h1 {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(76px, 8.5vw, 154px);
   line-height: 0.92;
   font-weight: 400;
@@ -624,7 +690,7 @@ a {
   padding: 40px 16px 0 0;
 }
 .onboarding-card-copy strong {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(26px, 2.3vw, 36px);
   line-height: 1.02;
   font-weight: 400;
@@ -753,7 +819,7 @@ a {
 }
 .onboarding-unfolded-topic strong {
   padding-right: 38px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(26px, 2.3vw, 36px);
   font-weight: 400;
   line-height: 1.08;
@@ -787,7 +853,7 @@ a {
   padding: 26px;
 }
 .onboarding-topic-card strong {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 30px;
   line-height: 1.08;
   font-weight: 400;
@@ -833,7 +899,7 @@ a {
   color: #81908a;
 }
 .onboarding-catalog-end p {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 30px;
   color: #65776d;
   letter-spacing: -0.5px;
@@ -1272,7 +1338,7 @@ a {
 }
 .onboarding-exclusion-card strong {
   padding-right: 36px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 32px;
   font-weight: 400;
   line-height: 1.1;
@@ -1372,7 +1438,7 @@ a {
   line-height: 1;
 }
 .brand-serif {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 25px;
   font-weight: 400;
   margin-left: 1px;
@@ -1405,7 +1471,7 @@ a {
   place-items: center;
   border: 1px solid #e2e3d8;
   border-radius: 6px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 19px;
 }
 .workspace-switch > div {
@@ -1558,7 +1624,7 @@ a {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 19px;
 }
 .sidebar-footer strong {
@@ -2777,6 +2843,93 @@ h1 {
 .preferences-body {
   padding: 23px 27px;
 }
+.custom-tag-dock {
+  position: sticky;
+  top: 65px;
+  z-index: 9;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border: 1px solid #b8cda6;
+  border-radius: 10px;
+  background: #f3f8ed;
+  box-shadow: 0 5px 16px #25392e14;
+}
+.custom-tag-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  color: #3f674d;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+.custom-tag-trigger > span {
+  flex: 1;
+}
+.custom-tag-trigger > svg:last-child,
+.domain-expand-button > svg,
+.preference-section > summary > svg:last-child {
+  transition: transform 160ms ease;
+}
+.custom-tag-trigger[aria-expanded='true'] > svg:last-child,
+.domain-expand-button[aria-expanded='true'] > svg,
+.preference-section[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.custom-tag-trigger small {
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #dfeccf;
+  font-size: 10px;
+}
+.custom-tag-dock .console-custom-tag-form {
+  margin: 12px 0 2px;
+}
+.domain-expand-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  margin-top: 11px;
+  padding: 10px;
+  border: 1px solid #dce6d2;
+  border-radius: 8px;
+  color: #527149;
+  background: #f8fbf4;
+  font-size: 11px;
+  font-weight: 600;
+}
+.preference-section {
+  margin-top: 12px;
+  padding: 0 14px 14px;
+  border: 1px solid #e1e8d9;
+  border-radius: 9px;
+}
+.preference-section:not([open]) {
+  padding-bottom: 0;
+}
+.preference-section > summary {
+  margin: 0 -14px;
+  padding: 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.preference-section > summary::-webkit-details-marker {
+  display: none;
+}
+.preference-section[open] > summary {
+  margin-bottom: 14px;
+  border-bottom: 1px solid #e8eee3;
+}
+.preference-section > summary > svg:last-child {
+  flex: 0 0 auto;
+  color: #7c9665;
+}
+.preference-section > summary.connected-tag-step p {
+  display: none;
+}
 .form-step {
   display: flex;
   align-items: center;
@@ -2815,6 +2968,39 @@ h1 {
   color: #8a9880;
   font-size: 11px;
   text-align: left;
+}
+.guide-domain-target,
+.guide-domain-target .domain-option {
+  width: 100%;
+}
+.guide-skip-button {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 40;
+  padding: 10px 14px;
+  border: 1px solid #d2d9cf;
+  border-radius: 9px;
+  background: #fffefa;
+  box-shadow: 0 5px 22px #213b2b24;
+  color: #405d4a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+.guide-skip-confirm {
+  padding: 20px 27px 24px;
+}
+.guide-skip-confirm p {
+  margin: 0 0 20px;
+  line-height: 1.6;
+}
+.guide-skip-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .domain-option > svg:last-child {
   margin-left: auto;
@@ -3953,6 +4139,9 @@ h1 {
   .preferences-body {
     padding: 20px;
   }
+  .custom-tag-dock {
+    top: 59px;
+  }
   .modal-footer {
     padding: 15px 20px;
     flex-wrap: wrap;
@@ -4507,7 +4696,7 @@ h1 {
 
 .source-hero h1 {
   max-width: 860px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(43px, 5vw, 72px);
   font-weight: 400;
   line-height: 0.99;
@@ -4563,7 +4752,7 @@ h1 {
 
 .source-focus-note strong {
   margin-top: 12px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 17px;
   font-weight: 400;
   line-height: 1.45;
@@ -4637,18 +4826,15 @@ h1 {
   margin-bottom: 30px;
 }
 
-.section-card-top em {
-  flex: 1;
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 750;
-  letter-spacing: 1.25px;
+.section-card-top svg {
+  flex-shrink: 0;
 }
 
-.source-section-card > strong {
+.section-card-top strong {
   display: block;
-  margin-bottom: 9px;
-  font-family: var(--serif);
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font);
   font-size: 26px;
   font-weight: 400;
 }
@@ -4676,7 +4862,7 @@ h1 {
 }
 
 .section-card-count b {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 17px;
   font-weight: 400;
 }
@@ -4719,7 +4905,7 @@ h1 {
 
 .source-board-heading h2 {
   margin-top: 8px;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 36px;
   font-weight: 400;
   letter-spacing: -1px;
@@ -4947,7 +5133,7 @@ h1 {
 }
 
 .social-import-copy h3 {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 18px;
   font-weight: 400;
 }
@@ -5077,6 +5263,101 @@ h1 {
   border-top: 1px solid rgba(32, 31, 27, 0.08);
 }
 
+.source-board {
+  container-type: inline-size;
+}
+
+.source-items.video-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+}
+
+.source-items.video-grid[data-columns='1'] {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.source-items.video-grid[data-columns='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.source-items.video-grid[data-columns='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.source-items.video-grid[data-columns='4'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.source-items.video-grid .source-item {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  border-right: 0;
+}
+
+.source-items.video-grid .source-stamp {
+  display: none;
+}
+
+.video-column-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.video-column-control select {
+  border: 1px solid #cbd1c8;
+  border-radius: 3px;
+  padding: 7px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.source-board-toolbar .video-result-count {
+  white-space: nowrap;
+}
+
+.source-board-toolbar.video-toolbar {
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.source-board-toolbar.video-toolbar .video-column-control {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.video-load-footer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  color: #536d5b;
+  font-size: 12px;
+}
+
+.video-load-footer button {
+  border: 1px solid #cbd1c8;
+  border-radius: 3px;
+  background: #eef4eb;
+  color: #284b3a;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+
+@container (max-width: 700px) {
+  .source-items.video-grid[data-columns='3'],
+  .source-items.video-grid[data-columns='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 440px) {
+  .source-items.video-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 .source-item {
   display: grid;
   grid-template-columns: 43px minmax(0, 1fr);
@@ -5153,7 +5434,7 @@ h1 {
   overflow: hidden;
   margin-top: 8px;
   color: #2e2c27;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 18px;
   font-weight: 400;
   line-height: 1.32;
@@ -5269,7 +5550,7 @@ h1 {
 }
 .resource-library-head h1 {
   color: #243127;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(38px, 6vw, 68px);
   font-weight: 400;
   letter-spacing: -2px;
@@ -5300,7 +5581,7 @@ h1 {
 }
 .resource-collections-heading h2 {
   color: #2f3d32;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 23px;
   font-weight: 400;
 }
@@ -5401,7 +5682,7 @@ h1 {
 }
 .resource-add-heading h2 {
   color: #2f3d32;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 23px;
   font-weight: 400;
 }
@@ -5485,7 +5766,7 @@ h1 {
 .resource-empty h2 {
   margin-top: 15px;
   color: #2f3d32;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 25px;
   font-weight: 400;
 }
@@ -5552,7 +5833,7 @@ h1 {
 .resource-record h2 {
   margin-top: 9px;
   color: #27332a;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 24px;
   font-weight: 400;
   line-height: 1.25;
@@ -5662,7 +5943,7 @@ h1 {
 .source-empty h3 {
   margin-top: 13px;
   color: #3d3b35;
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: 19px;
   font-weight: 400;
 }
@@ -5925,7 +6206,7 @@ h1 {
   margin-top: 84px;
 }
 .instructions-page h1 {
-  font-family: var(--serif);
+  font-family: var(--font);
   font-size: clamp(42px, 8vw, 70px);
   font-weight: 400;
   margin: 10px 0 52px;
@@ -6333,7 +6614,7 @@ body {
   margin-top: 9px;
 }
 .source-section-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   gap: 11px;
   margin-bottom: 22px;
 }
@@ -6359,14 +6640,10 @@ body {
   background: #dce6e6;
 }
 .section-card-top {
-  gap: 5px;
+  gap: 8px;
   margin-bottom: 18px;
 }
-.section-card-top em {
-  font-size: 7px;
-  letter-spacing: 0.8px;
-}
-.source-section-card > strong {
+.section-card-top strong {
   max-width: 100%;
   font-family: var(--font);
   font-size: 16px;
@@ -6459,4 +6736,575 @@ body {
   border: 0;
   border-radius: 8px;
   margin-bottom: 10px;
+}
+
+/* ============================================================
+ * Motion-Driven Layer (ui-ux-pro-max · style #15)
+ * Adds: entrance animation, scroll-reveal, hover microinteractions,
+ * page transitions, unified button + type utilities.
+ * Colors and icons are intentionally untouched.
+ * ============================================================ */
+
+/* Keyframes -------------------------------------------------- */
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes motion-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes motion-fade-down {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes motion-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes motion-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes motion-shimmer {
+  0% {
+    background-position: -240px 0;
+  }
+  100% {
+    background-position: 240px 0;
+  }
+}
+@keyframes motion-pulse-soft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes motion-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+/* Page transition wrapper ------------------------------------ */
+.motion-shell {
+  animation: motion-fade-in var(--dur-scene) var(--ease-out-expo) both;
+}
+.motion-shell[data-page] > * {
+  animation: motion-fade-up var(--dur-slow) var(--ease-out-expo) both;
+  animation-delay: 80ms;
+}
+
+/* Route-level page transition (supports View Transitions API) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-out-expo);
+}
+
+/* Entrance utility classes ----------------------------------- */
+.motion-enter {
+  animation: motion-fade-up var(--dur-slow) var(--ease-out-expo) both;
+}
+.motion-enter-fade {
+  animation: motion-fade-in var(--dur-slow) var(--ease-out-soft) both;
+}
+.motion-enter-scale {
+  animation: motion-scale-in var(--dur-slow) var(--ease-out-back) both;
+}
+.motion-enter-right {
+  animation: motion-slide-in-right var(--dur-slow) var(--ease-out-expo) both;
+}
+.motion-stagger > * {
+  animation: motion-fade-up var(--dur-slow) var(--ease-out-expo) both;
+}
+.motion-stagger > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.motion-stagger > *:nth-child(2) {
+  animation-delay: 90ms;
+}
+.motion-stagger > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+.motion-stagger > *:nth-child(4) {
+  animation-delay: 190ms;
+}
+.motion-stagger > *:nth-child(5) {
+  animation-delay: 240ms;
+}
+.motion-stagger > *:nth-child(6) {
+  animation-delay: 290ms;
+}
+.motion-stagger > *:nth-child(7) {
+  animation-delay: 340ms;
+}
+.motion-stagger > *:nth-child(8) {
+  animation-delay: 390ms;
+}
+.motion-stagger > *:nth-child(n + 9) {
+  animation-delay: 440ms;
+}
+
+/* Scroll-reveal --------------------------------------------- */
+/* Baseline: hidden until IntersectionObserver toggles .is-revealed. */
+.motion-reveal {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity var(--dur-slow) var(--ease-out-expo),
+    transform var(--dur-slow) var(--ease-out-expo);
+  will-change: transform, opacity;
+}
+.motion-reveal.is-revealed,
+:root:not(.js) .motion-reveal {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+/* Upgrade: modern scroll-driven animation on capable browsers */
+@supports (animation-timeline: view()) {
+  .motion-reveal {
+    opacity: 1;
+    transform: none;
+    animation: motion-fade-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 20%;
+  }
+}
+
+/* Hover microinteractions ----------------------------------- */
+.motion-hover-lift {
+  transition:
+    transform var(--dur-base) var(--ease-out-expo),
+    box-shadow var(--dur-base) var(--ease-out-soft);
+  will-change: transform;
+}
+.motion-hover-lift:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: var(--btn-shadow-hover);
+}
+.motion-hover-glow {
+  transition:
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    filter var(--dur-base) var(--ease-out-soft);
+}
+.motion-hover-glow:hover:not(:disabled) {
+  box-shadow: 0 0 0 3px rgba(63, 103, 77, 0.12);
+  filter: brightness(1.02);
+}
+
+/* Parallax layer helpers (respect reduced motion) ----------- */
+.motion-parallax {
+  transform: translate3d(0, calc(var(--parallax-y, 0) * 1px), 0);
+  transition: transform var(--dur-slow) var(--ease-out-soft);
+  will-change: transform;
+}
+
+/* Unified button surface ------------------------------------ *
+ * Applied only to buttons that opt in via .btn or [data-btn].
+ * Keeps existing button colors intact and provides one shared
+ * geometry + motion baseline across every page. */
+.btn,
+[data-btn] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--btn-min-h);
+  padding: var(--btn-pad-y) var(--btn-pad-x);
+  border-radius: var(--btn-radius-pill);
+  font-family: var(--font);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  box-shadow: var(--btn-shadow-rest);
+  transition:
+    background var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-expo);
+}
+.btn:hover:not(:disabled),
+[data-btn]:hover:not(:disabled) {
+  transform: translateY(var(--btn-lift));
+  box-shadow: var(--btn-shadow-hover);
+}
+.btn:active:not(:disabled),
+[data-btn]:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+  box-shadow: var(--btn-shadow-active);
+  transition-duration: var(--dur-instant);
+}
+.btn-sm,
+[data-btn='sm'] {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  border-radius: var(--btn-radius-md);
+}
+.btn-lg,
+[data-btn='lg'] {
+  min-height: 48px;
+  padding: 12px 22px;
+  font-size: var(--fs-base);
+  border-radius: var(--btn-radius-pill);
+}
+.btn-block {
+  width: 100%;
+}
+.btn-icon,
+[data-btn='icon'] {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+/* Unified icon button microinteraction (existing .icon-button class) */
+.icon-button {
+  transition:
+    background var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-expo);
+}
+.icon-button:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.04);
+}
+.icon-button:active:not(:disabled) {
+  transform: scale(0.94);
+  transition-duration: var(--dur-instant);
+}
+
+/* Typography rhythm ---------------------------------------- *
+ * Establishes a consistent baseline where explicit sizes are
+ * absent. Any component that already sets its own font-size
+ * keeps its intent — this only fills the gaps. */
+p {
+  font-size: inherit;
+}
+small {
+  font-size: var(--fs-xs);
+}
+label {
+  font-size: var(--fs-sm);
+}
+:where(h1) {
+  font-size: var(--fs-3xl);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+:where(h2) {
+  font-size: var(--fs-2xl);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+:where(h3) {
+  font-size: var(--fs-xl);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+:where(h4) {
+  font-size: var(--fs-lg);
+  line-height: 1.3;
+  font-weight: 600;
+}
+:where(input, select, textarea) {
+  font-size: var(--fs-sm);
+}
+
+/* Link microinteraction */
+a {
+  transition: color var(--dur-fast) var(--ease-out-soft);
+}
+a:hover {
+  filter: brightness(0.92);
+}
+
+/* Coherent interactive polish across existing components ---- *
+ * These selectors already exist across pages. We keep their
+ * colors and layout intact, and just harmonise size, motion,
+ * hover elevation, and press feedback. */
+.primary-button,
+.secondary-button,
+.onboarding-primary,
+.heading-button {
+  font-size: var(--fs-sm);
+  min-height: 40px;
+  padding: 10px 18px;
+  border-radius: var(--btn-radius-pill);
+  letter-spacing: 0.01em;
+  transition:
+    background var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-expo);
+}
+.primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
+.heading-button:hover:not(:disabled) {
+  transform: translateY(var(--btn-lift));
+  box-shadow: var(--btn-shadow-hover);
+}
+.primary-button:active:not(:disabled),
+.secondary-button:active:not(:disabled),
+.heading-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+  box-shadow: var(--btn-shadow-active);
+  transition-duration: var(--dur-instant);
+}
+
+/* Icon button surface polish */
+.icon-button {
+  border-radius: 50%;
+}
+
+/* Nav / tab microinteractions (sidebar + top tabs) */
+.nav-item,
+.source-tabs button,
+.sidebar-interests button {
+  transition:
+    background var(--dur-base) var(--ease-out-soft),
+    color var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft),
+    transform var(--dur-base) var(--ease-out-expo);
+}
+.nav-item:hover:not(.active),
+.source-tabs button:hover:not(.selected),
+.sidebar-interests button:hover {
+  transform: translateX(2px);
+}
+.source-tabs button.selected,
+.nav-item.active {
+  animation: motion-fade-in var(--dur-base) var(--ease-out-soft) both;
+}
+
+/* Card lift for section/library/resource cards */
+.source-section-card,
+.onboarding-world-card,
+.resource-card,
+.library-card,
+.feed-card {
+  will-change: transform;
+}
+.source-section-card {
+  transition:
+    transform var(--dur-base) var(--ease-out-expo),
+    box-shadow var(--dur-base) var(--ease-out-soft),
+    border-color var(--dur-base) var(--ease-out-soft),
+    background var(--dur-base) var(--ease-out-soft);
+}
+
+/* Modal entrance */
+dialog.modal[open] {
+  animation: motion-scale-in var(--dur-slow) var(--ease-out-back) both;
+}
+dialog.modal[open]::backdrop {
+  animation: motion-fade-in var(--dur-base) var(--ease-out-soft) both;
+}
+
+/* Heading-level rhythm inside common shells: keep any explicit
+ * font-size a component already sets, but where sizes are set
+ * only via bare tag selectors, converge onto the type scale. */
+.workspace-page h1,
+.source-hero h1,
+.library-hero h1,
+.resource-hero h1 {
+  font-size: var(--fs-3xl);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.page-subtitle,
+.page-heading p {
+  font-size: var(--fs-sm);
+}
+
+/* Boot brand pulse */
+.boot-brand {
+  animation: motion-fade-up var(--dur-scene) var(--ease-out-expo) both;
+}
+.boot-screen svg,
+.boot-screen i {
+  animation: motion-pulse-soft 1.6s var(--ease-in-out) infinite;
+}
+
+/* ============================================================
+ * Cross-page font unification
+ * Locks Discover / My garden / Resource library / Saved-for-later
+ * onto a single font-family and a shared role-based type scale.
+ * Decorative terminal covers are intentionally excluded so their
+ * mock-code aesthetic keeps working.
+ * ============================================================ */
+.workspace-content,
+.workspace-content
+  *:not(.cover-corner):not(.terminal-bar span):not(.terminal-code):not(.terminal-code *) {
+  font-family: var(--font) !important;
+}
+
+.workspace-content {
+  --page-fs-body: 14px;
+  --page-fs-small: 12px;
+  --page-fs-tiny: 11px;
+  --page-fs-eyebrow: 11px;
+  --page-fs-h1: 28px;
+  --page-fs-h2: 20px;
+  --page-fs-h3: 16px;
+  --page-fs-h4: 14px;
+  --page-fs-label: 12px;
+  --page-fs-btn: 12px;
+  font-size: var(--page-fs-body);
+  line-height: 1.55;
+}
+
+/* Role-scaled headings — unified across all four pages */
+.workspace-content :is(h1, .page-heading h1, .source-hero h1, .library-hero h1) {
+  font-size: var(--page-fs-h1);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.18;
+}
+.workspace-content :is(h2, .panel h2) {
+  font-size: var(--page-fs-h2);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.24;
+}
+.workspace-content :is(h3, .panel h3) {
+  font-size: var(--page-fs-h3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.workspace-content h4 {
+  font-size: var(--page-fs-h4);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+/* Copy, labels, small print */
+.workspace-content :is(p, li, dd, dt, blockquote) {
+  font-size: var(--page-fs-body);
+  line-height: 1.6;
+}
+.workspace-content :is(label, .eyebrow, .page-subtitle, .page-heading p) {
+  font-size: var(--page-fs-label);
+  line-height: 1.5;
+}
+.workspace-content small {
+  font-size: var(--page-fs-tiny);
+  line-height: 1.4;
+}
+
+/* Form + button surface parity */
+.workspace-content :is(input, select, textarea) {
+  font-size: var(--page-fs-small);
+  font-weight: 400;
+}
+.workspace-content
+  :is(
+    button,
+    .primary-button,
+    .secondary-button,
+    .heading-button,
+    .source-tabs button,
+    .icon-button,
+    .btn,
+    [data-btn]
+  ) {
+  font-size: var(--page-fs-btn);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.workspace-content .icon-button {
+  font-weight: 500;
+}
+
+/* Uppercased eyebrows / kickers keep their letter-spacing but share size */
+.workspace-content :is(.source-hero-kicker, .page-eyebrow, .nav-label, .source-focus-note small) {
+  font-size: var(--page-fs-eyebrow);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Card + list item body text */
+.workspace-content
+  :is(
+    .resource-card,
+    .library-card,
+    .feed-card,
+    .source-item,
+    .source-section-card,
+    .connection-row,
+    .settings-panel
+  ) {
+  font-size: var(--page-fs-body);
+}
+.workspace-content :is(.resource-card h3, .library-card h3, .source-section-card h3) {
+  font-size: var(--page-fs-h3);
+}
+.workspace-content :is(.resource-card p, .library-card p, .source-item p) {
+  font-size: var(--page-fs-small);
+}
+
+/* Sidebar shares the same family so hovering between sidebar and page
+ * never shows a font shift. Size stays as designed per navigation role. */
+.sidebar,
+.sidebar * {
+  font-family: var(--font) !important;
+}
+.sidebar .nav-item {
+  font-size: 13px;
+  font-weight: 500;
+}
+.sidebar .nav-item.active {
+  font-weight: 600;
+}
+.sidebar .nav-label {
+  font-size: var(--page-fs-eyebrow, 11px);
+  letter-spacing: 0.14em;
+  font-weight: 600;
 }

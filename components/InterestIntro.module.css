@@ -1,22 +1,16 @@
-.panel {
-  position: relative;
-  transform-origin: center;
-  container-type: inline-size;
-  container-name: interest-intro;
-}
-
 .target {
   position: relative;
   display: inline-flex;
   flex-shrink: 0;
+  max-width: 100%;
 }
 
 .ink {
-  display: none;
   position: absolute;
   inset: 0;
   pointer-events: none;
   color: #c84e43;
+  z-index: 2;
 }
 
 .ink svg {
@@ -32,115 +26,100 @@
 .ink path {
   vector-effect: non-scaling-stroke;
   stroke-dasharray: 1;
-  stroke-dashoffset: 1;
+  stroke-dashoffset: 0;
 }
 
 .circle {
-  inset: -10px -12px;
-  width: calc(100% + 24px);
-  height: calc(100% + 20px);
+  inset: -8px -11px;
+  width: calc(100% + 22px);
+  height: calc(100% + 16px);
 }
 
 .arrow {
-  right: calc(100% + 5px);
-  top: -25px;
+  right: calc(100% + 1px);
+  top: -23px;
   width: 76px;
   height: 48px;
 }
 
-.mobileArrow {
-  display: none;
+.target[data-guide-active] .circle path {
+  animation: drawInk 720ms ease-out both;
 }
 
-.panel[data-interest-intro='active'] {
-  animation: gentleBounce 720ms 1550ms both;
+.target[data-guide-active] .arrow path {
+  animation: drawInk 550ms 450ms ease-out both;
 }
 
-.panel[data-interest-intro='active'] .ink {
+.target[data-guide-active] > :first-child {
+  animation: guidePulse 2.4s 1s ease-in-out infinite;
+}
+
+.instruction {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 16px);
+  right: 0;
+  width: min(240px, 78vw);
+  padding: 10px 12px;
+  border: 1px solid #e6b5a9;
+  border-radius: 9px;
+  background: #fff9f5;
+  box-shadow: 0 6px 24px #572c2226;
+  color: #473630;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.instruction strong {
   display: block;
-  animation: fadeInk 450ms 3400ms forwards;
-}
-
-.panel[data-interest-intro='active'] .circle path {
-  animation: drawInk 780ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-
-.panel[data-interest-intro='active'] .arrow path {
-  animation: drawInk 560ms 800ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  margin-bottom: 2px;
+  color: #b3483e;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 @keyframes drawInk {
+  from {
+    stroke-dashoffset: 1;
+  }
   to {
     stroke-dashoffset: 0;
   }
 }
 
-@keyframes fadeInk {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes gentleBounce {
+@keyframes guidePulse {
   0%,
   100% {
     transform: scale(1);
   }
-  38% {
-    transform: scale(1.012);
-  }
-  65% {
-    transform: scale(0.997);
-  }
-  83% {
-    transform: scale(1.003);
+  50% {
+    transform: scale(1.035);
   }
 }
 
 @media (max-width: 600px) {
   .arrow {
-    top: -6px;
-    right: -85px;
+    right: calc(100% - 7px);
+    top: -27px;
   }
 
-  .desktopArrow {
-    display: none;
-  }
-
-  .mobileArrow {
-    display: block;
-  }
-}
-
-/* Expanded Sources can make the card narrow even on a desktop viewport. */
-@container interest-intro (max-width: 430px) {
-  .panel > :first-child {
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .arrow {
-    top: -6px;
-    right: -85px;
-  }
-
-  .desktopArrow {
-    display: none;
-  }
-
-  .mobileArrow {
-    display: block;
+  .instruction {
+    position: fixed;
+    top: auto;
+    right: auto;
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 76px));
+    left: 16px;
+    width: min(260px, calc(100vw - 32px));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel[data-interest-intro='active'],
-  .panel[data-interest-intro='active'] .ink,
-  .panel[data-interest-intro='active'] .ink path {
+  .target[data-guide-active] .ink path,
+  .target[data-guide-active] > :first-child {
     animation: none;
-  }
-
-  .panel[data-interest-intro='active'] .ink path {
-    stroke-dashoffset: 0;
   }
 }

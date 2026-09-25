@@ -6,6 +6,15 @@
       "sourceType": "github",
       "skillPath": "skills/typesafe-ai/SKILL.md",
       "computedHash": "9cd84c5e535dec8dec59917c110f9c00b4a61faadb86b432ec7e41051170af12"
+    },
+    "ui-ux-pro-max": {
+      "source": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/ui-ux-pro-max/SKILL.md",
+      "computedHash": "pending",
+      "style": "motion-driven",
+      "styleId": 15,
+      "notes": "Applied motion-driven style (row 15): 300-400ms hover microinteractions, entrance animations, scroll-triggered reveal via IntersectionObserver / view-timeline, respects prefers-reduced-motion. Colors and icons are locked; only animation logic and unified type/button surface added."
     }
   }
 }

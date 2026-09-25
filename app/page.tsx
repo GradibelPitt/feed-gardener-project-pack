@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDownToLine,
   Check,
@@ -22,13 +22,11 @@ import {
 import ResourceLibrary from '@/components/ResourceLibrary';
 import WorkspaceSidebar, { type WorkspacePage } from '@/components/WorkspaceSidebar';
 import FeederWorkspace from '@/components/FeederWorkspace';
-import SelectedTagsToggle from '@/components/SelectedTagsToggle';
+import { InterestIntroTarget } from '@/components/InterestIntro';
 import YouTubeConnection from '@/components/YouTubeConnection';
-import { readApiData } from '@/lib/api-contract';
 import { defaultPreferences, domains, type CustomTag, type Preferences } from '@/lib/feed';
 import { visibleInterfaceLocale } from '@/lib/locale';
 import { normalizeBehaviorWeights, type BehaviorSignal } from '@/lib/strategy';
-import type { TagSuggestion } from '@/lib/tag-suggestions';
 import {
   readResourceCollections,
   readResourceRecords,
@@ -45,6 +43,7 @@ const STORAGE = 'feed-gardener-demo-v1';
 const RESOURCES_STORAGE = 'feed-gardener-resources-v1';
 const COLLECTIONS_STORAGE = 'feed-gardener-collections-v1';
 const EVENTS_STORAGE = 'feed-gardener-events-v1';
+const GUIDE_STORAGE = 'feed-gardener:setup-guide:v2';
 const knownSources = [
   'YouTube',
   'Bilibili',
@@ -59,17 +58,6 @@ const visibleSources = knownSources.filter(
   (source) => !['TikTok', 'Instagram', 'X'].includes(source),
 );
 const allTags = domains.flatMap((domain) => domain.tags);
-const readingLanguageOptions: ReadonlyArray<{
-  id: Preferences['readingLanguage'];
-  zh: string;
-  en: string;
-}> = [
-  { id: 'zh', zh: '中文', en: 'Chinese' },
-  { id: 'en', zh: '英文', en: 'English' },
-  { id: 'bilingual', zh: '中英双语', en: 'Bilingual' },
-];
-// Keep the full set above for a later re-enable, but do not expose Chinese display options yet.
-const visibleReadingLanguageOptions = readingLanguageOptions.filter(({ id }) => id === 'en');
 const customTagName = (tag: CustomTag, readingLanguage: Preferences['readingLanguage']) => {
   if (readingLanguage === 'en') return tag.labelEn;
   if (readingLanguage === 'zh')
@@ -229,17 +217,14 @@ export default function Home() {
   const locale = visibleInterfaceLocale;
   const [customTagInput, setCustomTagInput] = useState('');
   const [customTagError, setCustomTagError] = useState('');
+  const [domainsExpanded, setDomainsExpanded] = useState(false);
+  const [customTagOpen, setCustomTagOpen] = useState(false);
   const [page, setPage] = useState<Page>('discover');
   const [preferences, setPreferences] = useState<Preferences>(englishDefaultPreferences);
   const [resources, setResources] = useState<ResourceRecord[]>([]);
   const [collections, setCollections] = useState<ResourceCollection[]>([]);
   const [feederEvents, setFeederEvents] = useState<FeederEvent[]>([]);
   const [draft, setDraft] = useState<Preferences | null>(null);
-  const [tagSuggestions, setTagSuggestions] = useState<TagSuggestion[]>([]);
-  const [tagSuggestionStatus, setTagSuggestionStatus] = useState<
-    'idle' | 'loading' | 'live' | 'degraded'
-  >('idle');
-  const [tagSuggestionWarning, setTagSuggestionWarning] = useState('');
   const [toast, setToast] = useState('');
   const [ready, setReady] = useState(false);
   const [splitStorageReady, setSplitStorageReady] = useState(false);
@@ -247,10 +232,16 @@ export default function Home() {
   const [mobileNav, setMobileNav] = useState(false);
   const [offline, setOffline] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [guideStep, setGuideStep] = useState(0);
+  const [skipGuideConfirm, setSkipGuideConfirm] = useState(false);
   const t = (zh: string, en: string) => (locale === 'zh' ? zh : en);
 
   useEffect(() => {
     try {
+      const savedGuideStep = Number(localStorage.getItem(GUIDE_STORAGE));
+      if (Number.isInteger(savedGuideStep) && savedGuideStep >= 0 && savedGuideStep <= 6) {
+        setGuideStep(savedGuideStep);
+      }
       const stored = readStoredSlice(STORAGE, null) as Record<string, unknown> | null;
       if (stored && typeof stored === 'object') {
         const savedPreferences = readPreferences(stored.preferences);
@@ -362,6 +353,14 @@ export default function Home() {
     }
   }, [preferences, page, ready, splitStorageReady]);
   useEffect(() => {
+    if (!ready) return;
+    try {
+      localStorage.setItem(GUIDE_STORAGE, String(guideStep));
+    } catch {
+      // The current session still keeps the guide state.
+    }
+  }, [guideStep, ready]);
+  useEffect(() => {
     if (!ready || !splitStorageReady) return;
     try {
       localStorage.setItem(RESOURCES_STORAGE, JSON.stringify(resources));
@@ -393,62 +392,6 @@ export default function Home() {
     const timer = setTimeout(() => setToast(''), 4200);
     return () => clearTimeout(timer);
   }, [toast]);
-
-  const tagSuggestionQuery = useMemo(
-    () =>
-      draft
-        ? JSON.stringify({
-            domainIds: draft.domains,
-            tagIds: draft.tags,
-            customTerms: draft.customTags.map((tag) => tag.labelEn),
-            readingLanguage: draft.readingLanguage,
-          })
-        : '',
-    [draft?.domains, draft?.tags, draft?.customTags, draft?.readingLanguage],
-  );
-  useEffect(() => {
-    if (!draft || (!draft.domains.length && !draft.tags.length && !draft.customTags.length)) {
-      setTagSuggestions([]);
-      setTagSuggestionStatus('idle');
-      setTagSuggestionWarning('');
-      return;
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setTagSuggestionStatus('loading');
-      setTagSuggestionWarning('');
-      try {
-        const response = await fetch('/api/tags/suggest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: tagSuggestionQuery,
-          signal: controller.signal,
-        });
-        const payload = await readApiData<{
-          suggestions?: TagSuggestion[];
-          liveStatus?: 'live' | 'degraded' | 'idle';
-          warning?: string | null;
-        }>(response);
-        setTagSuggestions(Array.isArray(payload.suggestions) ? payload.suggestions : []);
-        setTagSuggestionStatus(payload.liveStatus ?? 'degraded');
-        setTagSuggestionWarning(payload.warning ?? '');
-      } catch {
-        if (controller.signal.aborted) return;
-        setTagSuggestions([]);
-        setTagSuggestionStatus('degraded');
-        setTagSuggestionWarning(
-          t(
-            '联网标签建议暂时不可用，仍可使用内置标签。',
-            'Live tag suggestions are unavailable. Built-in topics still work.',
-          ),
-        );
-      }
-    }, 450);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [tagSuggestionQuery]);
 
   const changeOnlySelectedTags = (value: boolean) =>
     setPreferences((current) => ({
@@ -485,11 +428,19 @@ export default function Home() {
   const editPreferences = () => {
     setCustomTagInput('');
     setCustomTagError('');
+    setDomainsExpanded(false);
+    setCustomTagOpen(false);
     setDraft(structuredClone(preferences));
   };
   const manageInterests = () => {
     navigate('discover');
     editPreferences();
+  };
+  const advanceGuide = (step: number) =>
+    setGuideStep((current) => (current === step ? current + 1 : current));
+  const closeInterestEditor = () => {
+    setDraft(null);
+    setGuideStep((current) => (current === 2 || current === 3 ? 1 : current));
   };
   const exportData = () => {
     const blob = new Blob(
@@ -556,7 +507,7 @@ export default function Home() {
           </div>
         )}
         {page === 'discover' || page === 'garden' ? (
-          <main className="discover-page">
+          <main className="discover-page workspace-content" data-page={page}>
             <FeederWorkspace
               page={page}
               locale={locale}
@@ -580,6 +531,8 @@ export default function Home() {
               onOnlySelectedTagsChange={changeOnlySelectedTags}
               onInterestRuleChange={changeInterestRule}
               onEditInterests={manageInterests}
+              guideStep={guideStep}
+              onGuideAdvance={advanceGuide}
             />
           </main>
         ) : page === 'connections' ? (
@@ -730,306 +683,178 @@ export default function Home() {
           wide
           title={t('种下你的兴趣', 'Plant your interests')}
           closeLabel={t('关闭', 'Close')}
-          onClose={() => setDraft(null)}
+          onClose={closeInterestEditor}
         >
           <div className="preferences-body">
+            <div className="custom-tag-dock">
+              <button
+                type="button"
+                className="custom-tag-trigger"
+                aria-expanded={customTagOpen}
+                aria-controls="console-custom-tag-form"
+                onClick={() => setCustomTagOpen((open) => !open)}
+              >
+                <Plus size={17} />
+                <span>{t('找不到标签？添加自己的标签', 'Can’t find a tag? Add your own')}</span>
+                {draft.customTags.length > 0 && <small>{draft.customTags.length}</small>}
+                <ChevronDown size={17} />
+              </button>
+              {customTagOpen && (
+                <div id="console-custom-tag-form">
+                  <form
+                    className="console-custom-tag-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const label = customTagInput.trim().replace(/\s+/g, ' ');
+                      const normalized = label.toLocaleLowerCase();
+                      if (!label || label.length > 80) {
+                        setCustomTagError('Enter a tag with 1–80 characters.');
+                        return;
+                      }
+                      if (
+                        allTags.some(
+                          (tag) =>
+                            tag.labelEn.toLocaleLowerCase() === normalized ||
+                            tag.label.toLocaleLowerCase() === normalized,
+                        ) ||
+                        draft.customTags.some(
+                          (tag) => tag.labelEn.toLocaleLowerCase() === normalized,
+                        )
+                      ) {
+                        setCustomTagError('That tag already exists. Select it above.');
+                        return;
+                      }
+                      if (draft.customTags.length >= 12) {
+                        setCustomTagError('You can add up to 12 custom tags.');
+                        return;
+                      }
+                      setDraft({
+                        ...draft,
+                        customTags: [
+                          ...draft.customTags,
+                          {
+                            id: `manual:${encodeURIComponent(normalized)}`,
+                            label,
+                            labelEn: label,
+                            labelZh: label,
+                            translationStatus: 'source_label',
+                            source: 'manual',
+                            evidenceUrl: '',
+                          },
+                        ],
+                      });
+                      setCustomTagInput('');
+                      setCustomTagError('');
+                    }}
+                  >
+                    <div>
+                      <input
+                        id="console-custom-tag"
+                        aria-label={t('标签名称', 'Tag name')}
+                        value={customTagInput}
+                        maxLength={80}
+                        onChange={(event) => {
+                          setCustomTagInput(event.target.value);
+                          setCustomTagError('');
+                        }}
+                        placeholder="e.g. Indie game design"
+                      />
+                      <button type="submit" className="secondary-button">
+                        <Plus size={15} /> Add tag
+                      </button>
+                    </div>
+                    {customTagError && <p role="alert">{customTagError}</p>}
+                  </form>
+                  {draft.customTags.length > 0 && (
+                    <div className="selected-live-tags">
+                      {draft.customTags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          className="chosen"
+                          onClick={() =>
+                            setDraft({
+                              ...draft,
+                              customTags: draft.customTags.filter((item) => item.id !== tag.id),
+                            })
+                          }
+                        >
+                          <Check size={13} />
+                          {customTagName(tag, draft.readingLanguage)}
+                          <small>{tag.source === 'manual' ? 'YOUR TAG' : 'LIVE'}</small>
+                          <X size={12} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="form-step">
               <span>01</span>
               <h3>{t('选择想深入的领域', 'Choose where to grow')}</h3>
             </div>
             <div className="domain-grid">
-              {domains.map((domain, i) => {
-                const selected = draft.domains.includes(domain.id);
-                const Icon = [Cpu, Layers3, Code2, Globe2, Compass, Radio][i] ?? Compass;
-                return (
-                  <button
-                    key={domain.id}
-                    aria-pressed={selected}
-                    className={`domain-option ${selected ? 'chosen' : ''}`}
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        domains: selected
-                          ? draft.domains.filter((id) => id !== domain.id)
-                          : [...draft.domains, domain.id],
-                        tags: selected
-                          ? draft.tags.filter((id) => !domain.tags.some((tag) => tag.id === id))
-                          : draft.tags,
-                        relatedDomains: selected
-                          ? draft.relatedDomains
-                          : draft.relatedDomains.filter((id) => id !== domain.id),
-                      })
-                    }
-                  >
-                    <Icon size={19} />
-                    <span>{locale === 'zh' ? domain.label : domain.labelEn}</span>
-                    {selected ? <Check size={16} /> : <Plus size={15} />}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="form-step">
-              <span>02</span>
-              <h3>{t('再具体一点，你对什么好奇？', 'What sparks your curiosity?')}</h3>
-            </div>
-            <div className="preference-tags">
               {domains
-                .filter((d) => draft.domains.includes(d.id))
-                .flatMap((domain) => domain.tags)
-                .map((tag) => (
-                  <button
-                    key={tag.id}
-                    aria-pressed={draft.tags.includes(tag.id)}
-                    className={draft.tags.includes(tag.id) ? 'chosen' : ''}
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        tags: draft.tags.includes(tag.id)
-                          ? draft.tags.filter((id) => id !== tag.id)
-                          : [...draft.tags, tag.id],
-                      })
-                    }
-                  >
-                    {draft.tags.includes(tag.id) ? <Check size={13} /> : <Plus size={13} />}
-                    {locale === 'zh' ? tag.label : tag.labelEn}
-                  </button>
-                ))}
+                .filter(
+                  (domain, index) =>
+                    domainsExpanded || index < 6 || draft.domains.includes(domain.id),
+                )
+                .map((domain) => {
+                  const selected = draft.domains.includes(domain.id);
+                  const guideDomainId =
+                    domains.find((item) => !draft.domains.includes(item.id))?.id ?? domains[0].id;
+                  const Icon =
+                    [Cpu, Layers3, Code2, Globe2, Compass, Radio][domains.indexOf(domain)] ??
+                    Compass;
+                  return (
+                    <InterestIntroTarget
+                      key={domain.id}
+                      active={guideStep === 2 && domain.id === guideDomainId}
+                      step={3}
+                      instruction="Click a category you want in your feed. You can choose more before saving."
+                      className="guide-domain-target"
+                    >
+                      <button
+                        aria-pressed={selected}
+                        className={`domain-option ${selected ? 'chosen' : ''}`}
+                        onClick={() => {
+                          const nextDomains = selected
+                            ? draft.domains.filter((id) => id !== domain.id)
+                            : [...draft.domains, domain.id];
+                          setDraft({
+                            ...draft,
+                            domains: nextDomains,
+                            tags: selected
+                              ? draft.tags.filter((id) => !domain.tags.some((tag) => tag.id === id))
+                              : draft.tags,
+                            relatedDomains: selected
+                              ? draft.relatedDomains
+                              : draft.relatedDomains.filter((id) => id !== domain.id),
+                          });
+                          if (nextDomains.length > 0 || draft.customTags.length > 0) {
+                            advanceGuide(2);
+                          }
+                        }}
+                      >
+                        <Icon size={19} />
+                        <span>{locale === 'zh' ? domain.label : domain.labelEn}</span>
+                        {selected ? <Check size={16} /> : <Plus size={15} />}
+                      </button>
+                    </InterestIntroTarget>
+                  );
+                })}
             </div>
-            {draft.domains.length === 0 && (
-              <p className="field-hint">
-                {t('先选择一个领域，展开相关主题。', 'Choose a domain to explore its topics.')}
-              </p>
-            )}
-            <div className="form-step connected-tag-step">
-              <span>02B</span>
-              <div>
-                <h3>{t('联网联想更多方向', 'Discover adjacent tags online')}</h3>
-                <p>
-                  {t(
-                    '保留内置标签，同时从当前公开 GitHub 仓库主题中寻找共现方向。联想结果不会自动加入偏好。',
-                    'Keep the built-in taxonomy while finding co-occurring topics from current public GitHub repositories. Suggestions are never added automatically.',
-                  )}
-                </p>
-              </div>
-              <strong className={`suggestion-status status-${tagSuggestionStatus}`}>
-                {tagSuggestionStatus === 'loading'
-                  ? t('正在联网', 'Checking live sources')
-                  : tagSuggestionStatus === 'live'
-                    ? t('公开源已更新', 'Live source updated')
-                    : tagSuggestionStatus === 'degraded'
-                      ? t('仅显示内置联想', 'Curated fallback')
-                      : t('等待选择', 'Select an interest')}
-              </strong>
-            </div>
-            <div className="reading-language-picker">
-              <span>{t('你实际阅读内容时使用', 'Content reading language')}</span>
-              <div>
-                {visibleReadingLanguageOptions.map(({ id, zh, en }) => (
-                  <button
-                    key={id}
-                    className={draft.readingLanguage === id ? 'chosen' : ''}
-                    aria-pressed={draft.readingLanguage === id}
-                    onClick={() => setDraft({ ...draft, readingLanguage: id })}
-                  >
-                    {draft.readingLanguage === id && <Check size={12} />}
-                    {t(zh, en)}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {draft.customTags.length > 0 && (
-              <div className="selected-live-tags">
-                {draft.customTags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    className="chosen"
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        customTags: draft.customTags.filter((item) => item.id !== tag.id),
-                      })
-                    }
-                  >
-                    <Check size={13} />
-                    {customTagName(tag, draft.readingLanguage)}
-                    <small>{tag.source === 'manual' ? 'YOUR TAG' : 'LIVE'}</small>
-                    <X size={12} />
-                  </button>
-                ))}
-              </div>
-            )}
-            <form
-              className="console-custom-tag-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const label = customTagInput.trim().replace(/\s+/g, ' ');
-                const normalized = label.toLocaleLowerCase();
-                if (!label || label.length > 80) {
-                  setCustomTagError('Enter a tag with 1–80 characters.');
-                  return;
-                }
-                if (
-                  allTags.some(
-                    (tag) =>
-                      tag.labelEn.toLocaleLowerCase() === normalized ||
-                      tag.label.toLocaleLowerCase() === normalized,
-                  ) ||
-                  draft.customTags.some((tag) => tag.labelEn.toLocaleLowerCase() === normalized)
-                ) {
-                  setCustomTagError('That tag already exists. Select it above.');
-                  return;
-                }
-                if (draft.customTags.length >= 12) {
-                  setCustomTagError('You can add up to 12 custom tags.');
-                  return;
-                }
-                setDraft({
-                  ...draft,
-                  customTags: [
-                    ...draft.customTags,
-                    {
-                      id: `manual:${encodeURIComponent(normalized)}`,
-                      label,
-                      labelEn: label,
-                      labelZh: label,
-                      translationStatus: 'source_label',
-                      source: 'manual',
-                      evidenceUrl: '',
-                    },
-                  ],
-                });
-                setCustomTagInput('');
-                setCustomTagError('');
-              }}
+            <button
+              type="button"
+              className="domain-expand-button"
+              aria-expanded={domainsExpanded}
+              onClick={() => setDomainsExpanded((expanded) => !expanded)}
             >
-              <label htmlFor="console-custom-tag">Can’t find a tag? Add your own</label>
-              <div>
-                <input
-                  id="console-custom-tag"
-                  value={customTagInput}
-                  maxLength={80}
-                  onChange={(event) => {
-                    setCustomTagInput(event.target.value);
-                    setCustomTagError('');
-                  }}
-                  placeholder="e.g. Indie game design"
-                />
-                <button type="submit" className="secondary-button">
-                  <Plus size={15} /> Add tag
-                </button>
-              </div>
-              {customTagError && <p role="alert">{customTagError}</p>}
-            </form>
-            <div className="preference-tags suggestion-tags" aria-live="polite">
-              {tagSuggestions.map((suggestion) => {
-                const selected = suggestion.knownTagId
-                  ? draft.tags.includes(suggestion.knownTagId)
-                  : draft.customTags.some((tag) => tag.id === suggestion.id);
-                return (
-                  <button
-                    key={suggestion.id}
-                    aria-pressed={selected}
-                    className={selected ? 'chosen' : ''}
-                    title={suggestion.reason}
-                    onClick={() => {
-                      if (suggestion.knownTagId) {
-                        setDraft({
-                          ...draft,
-                          tags: selected
-                            ? draft.tags.filter((id) => id !== suggestion.knownTagId)
-                            : [...draft.tags, suggestion.knownTagId],
-                        });
-                        return;
-                      }
-                      if (!suggestion.evidenceUrl) return;
-                      setDraft({
-                        ...draft,
-                        customTags: selected
-                          ? draft.customTags.filter((tag) => tag.id !== suggestion.id)
-                          : [
-                              ...draft.customTags,
-                              {
-                                id: suggestion.id,
-                                label: suggestion.displayLabel,
-                                labelZh: suggestion.label,
-                                labelEn: suggestion.labelEn,
-                                translationStatus:
-                                  suggestion.translationStatus === 'translated'
-                                    ? ('translated' as const)
-                                    : ('source_label' as const),
-                                source: 'github_live' as const,
-                                evidenceUrl: suggestion.evidenceUrl,
-                              },
-                            ].slice(0, 12),
-                      });
-                    }}
-                  >
-                    {selected ? <Check size={13} /> : <Plus size={13} />}
-                    {suggestion.displayLabel}
-                    <small>{suggestion.origin === 'live' ? 'LIVE' : t('内置', 'SEED')}</small>
-                  </button>
-                );
-              })}
-            </div>
-            {tagSuggestionWarning && (
-              <p className="field-hint">
-                {t(
-                  '联网来源暂不可用，已保留内置标签联想。',
-                  'The live source is unavailable; curated suggestions remain available.',
-                )}
-              </p>
-            )}
-            <div className="form-step">
-              <span>03</span>
-              <h3>{t('为相邻领域留一点空间', 'Leave some room for discovery')}</h3>
-              <strong>{draft.onlySelectedTags ? 0 : draft.exploration}%</strong>
-            </div>
-            <SelectedTagsToggle
-              checked={draft.onlySelectedTags === true}
-              onChange={(value) => setDraft({ ...draft, onlySelectedTags: value })}
-            />
-            <input
-              className="explore-range"
-              aria-label={t('探索比例', 'Exploration ratio')}
-              type="range"
-              min="0"
-              max="50"
-              step="5"
-              disabled={draft.onlySelectedTags}
-              value={draft.onlySelectedTags ? 0 : draft.exploration}
-              onChange={(e) => setDraft({ ...draft, exploration: Number(e.target.value) })}
-            />
-            <div className="range-labels">
-              <span>{t('专注核心兴趣', 'Stay focused')}</span>
-              <span>{t('多一点意外收获', 'Explore a little more')}</span>
-            </div>
-            <div className="preference-tags adjacent-tags">
-              {domains
-                .filter((d) => !draft.domains.includes(d.id))
-                .map((domain) => (
-                  <button
-                    aria-pressed={draft.relatedDomains.includes(domain.id)}
-                    disabled={draft.onlySelectedTags}
-                    className={draft.relatedDomains.includes(domain.id) ? 'chosen' : ''}
-                    key={domain.id}
-                    onClick={() =>
-                      setDraft({
-                        ...draft,
-                        relatedDomains: draft.relatedDomains.includes(domain.id)
-                          ? draft.relatedDomains.filter((id) => id !== domain.id)
-                          : [...draft.relatedDomains, domain.id],
-                      })
-                    }
-                  >
-                    {draft.relatedDomains.includes(domain.id) ? (
-                      <Check size={13} />
-                    ) : (
-                      <Plus size={13} />
-                    )}
-                    {locale === 'zh' ? domain.label : domain.labelEn}
-                  </button>
-                ))}
-            </div>
+              {domainsExpanded
+                ? t('收起其他领域', 'Show fewer categories')
+                : t('展开所有领域', 'Expand all categories')}
+              <ChevronDown size={16} />
+            </button>
             <details className="exclusion-settings">
               <summary>
                 <ShieldCheck size={16} />
@@ -1104,27 +929,34 @@ export default function Home() {
           </div>
           <div className="modal-footer">
             <span>{t('保存在当前浏览器', 'Saved in this browser')}</span>
-            <button
-              className="primary-button"
-              disabled={draft.domains.length === 0 && draft.customTags.length === 0}
-              onClick={() => {
-                setPreferences({
-                  ...draft,
-                  behaviorWeights: normalizeBehaviorWeights(draft.behaviorWeights),
-                  version: preferences.version + 1,
-                });
-                setDraft(null);
-                setToast(
-                  t(
-                    '兴趣已更新，新发现正在生长',
-                    'Interests updated. New discoveries are taking root.',
-                  ),
-                );
-              }}
+            <InterestIntroTarget
+              active={guideStep === 3}
+              step={4}
+              instruction="Click Save my interests to keep your choices in this browser."
             >
-              <Check size={16} />
-              {t('保存，让发现开始', 'Save my interests')}
-            </button>
+              <button
+                className="primary-button"
+                disabled={draft.domains.length === 0 && draft.customTags.length === 0}
+                onClick={() => {
+                  setPreferences({
+                    ...draft,
+                    behaviorWeights: normalizeBehaviorWeights(draft.behaviorWeights),
+                    version: preferences.version + 1,
+                  });
+                  advanceGuide(3);
+                  setDraft(null);
+                  setToast(
+                    t(
+                      '兴趣已更新，新发现正在生长',
+                      'Interests updated. New discoveries are taking root.',
+                    ),
+                  );
+                }}
+              >
+                <Check size={16} />
+                {t('保存，让发现开始', 'Save my interests')}
+              </button>
+            </InterestIntroTarget>
           </div>
         </Modal>
       )}
@@ -1159,6 +991,7 @@ export default function Home() {
                 setResources([]);
                 setCollections([]);
                 setFeederEvents([]);
+                setGuideStep(0);
                 setResetConfirm(false);
                 setToast(t('演示空间已重置', 'Your demo space has been reset'));
               }}
@@ -1176,6 +1009,43 @@ export default function Home() {
             <X size={15} />
           </button>
         </div>
+      )}
+      {guideStep < 6 && (
+        <button
+          type="button"
+          className="guide-skip-button"
+          onClick={() => setSkipGuideConfirm(true)}
+        >
+          Skip instructions
+        </button>
+      )}
+      {skipGuideConfirm && (
+        <Modal
+          title="Skip setup instructions?"
+          closeLabel="Close"
+          onClose={() => setSkipGuideConfirm(false)}
+        >
+          <div className="guide-skip-confirm">
+            <p>
+              Are you sure you want to skip the instructions? You can open Instructions anytime from
+              the lower-left sidebar.
+            </p>
+            <div>
+              <button className="secondary-button" onClick={() => setSkipGuideConfirm(false)}>
+                Keep guiding me
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setGuideStep(6);
+                  setSkipGuideConfirm(false);
+                }}
+              >
+                Skip instructions
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -67,7 +67,7 @@ export type Preferences = {
   tags: string[];
   /** Feeder's editable per-user tag interest weights; unrelated to Jev title scoring. */
   tagJev?: Record<string, number>;
-  /** Desired mean Jev title relevance for the simulated feed, from 1 to 10. */
+  /** Minimum Jev title relevance per displayed item, from 1 to 10 (legacy storage key). */
   targetJevAverage?: number;
   customTags: CustomTag[];
   relatedDomains: string[];
@@ -1105,7 +1105,10 @@ export function matchesHarvestPreferences(
       .replace(/[-_\s]+/g, ' ');
   const itemTags = new Set(item.tags.map(normalize));
   // Public crawlers label this topic "Agent"; the preference catalog uses "Agents".
-  const sourceAliases: Record<string, string[]> = { agents: ['Agent'] };
+  const sourceAliases: Record<string, string[]> = {
+    agents: ['Agent'],
+    'ai-infrastructure': ['AI'],
+  };
   const matchesTag = (id: string) => {
     const tag = tagMap.get(id);
     return [id, tag?.label, tag?.labelEn, ...(sourceAliases[id] ?? [])].some(

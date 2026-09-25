@@ -1,10 +1,10 @@
 import { fetchArxiv } from './arxiv.ts';
-import { fetchBilibiliSearch } from './bilibili.ts';
+import { fetchBilibiliSearchPage } from './bilibili.ts';
 import { fetchGithub } from './github.ts';
 import { fetchHackerNews } from './hackernews.ts';
 import { socialHealth } from './social.ts';
 import {
-  fetchYouTubeSearch,
+  fetchYouTubeSearchPage,
   youtubeSearchConfigured,
   youtubeSearchKeyRevision,
 } from './youtube.ts';
@@ -24,15 +24,19 @@ type SourceResult = {
   section: FeedSection;
   items: HarvestItem[];
   warning?: string;
+  nextCursor?: string | null;
 };
 
 async function collect(
   source: LiveSource,
   section: FeedSection,
-  run: () => Promise<HarvestItem[]>,
+  run: () => Promise<HarvestItem[] | { items: HarvestItem[]; nextCursor: string | null }>,
 ): Promise<SourceResult> {
   try {
-    return { source, section, items: await run() };
+    const result = await run();
+    return Array.isArray(result)
+      ? { source, section, items: result }
+      : { source, section, ...result };
   } catch (error) {
     return {
       source,
@@ -87,13 +91,14 @@ export async function harvestPublicSources(
   youtubeTags: string[] = [],
   source?: LiveSource,
   localizedTags: string[] = [],
+  cursor?: string,
 ): Promise<HarvestPayload> {
   const now = Date.now();
   const terms = youtubeTags
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 2);
-  const cacheKey = `${source ?? 'all'}\u0001${terms.join('\u0000')}\u0001${localizedTags.join('\u0000')}\u0001${youtubeSearchKeyRevision()}`;
+  const cacheKey = `${source ?? 'all'}\u0001${terms.join('\u0000')}\u0001${localizedTags.join('\u0000')}\u0001${cursor ?? ''}\u0001${youtubeSearchKeyRevision()}`;
   const snapshot = cached.get(cacheKey);
   if (!forceRefresh && snapshot && snapshot.expiresAt > now) {
     return { ...snapshot.payload, cache: 'hit' };
@@ -107,10 +112,10 @@ export async function harvestPublicSources(
       ? [collect('Hacker News', 'opensource', fetchHackerNews)]
       : []),
     ...((!source || source === 'YouTube') && youtubeSearchConfigured() && terms.length
-      ? [collect('YouTube', 'social', () => fetchYouTubeSearch(terms))]
+      ? [collect('YouTube', 'social', () => fetchYouTubeSearchPage(terms, localizedTags, cursor))]
       : []),
     ...((!source || source === 'Bilibili') && terms.length
-      ? [collect('Bilibili', 'social', () => fetchBilibiliSearch(terms, localizedTags))]
+      ? [collect('Bilibili', 'social', () => fetchBilibiliSearchPage(terms, localizedTags, cursor))]
       : []),
   ]);
   const social = dedupe(
@@ -193,6 +198,18 @@ export async function harvestPublicSources(
       ...results.map(healthFor),
     ],
     warnings: results.flatMap((result) => (result.warning ? [result.warning] : [])),
+    ...(source === 'YouTube' || source === 'Bilibili'
+      ? { nextCursor: results.find((result) => result.source === source)?.nextCursor ?? null }
+      : {}),
+    ...(!source
+      ? {
+          nextCursors: Object.fromEntries(
+            results
+              .filter((result) => result.source === 'YouTube' || result.source === 'Bilibili')
+              .map((result) => [result.source, result.nextCursor ?? null]),
+          ),
+        }
+      : {}),
   };
   cached.delete(cacheKey);
   cached.set(cacheKey, { expiresAt: now + CACHE_TTL_MS, payload });

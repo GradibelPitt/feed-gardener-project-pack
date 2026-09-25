@@ -220,6 +220,7 @@ export function classifyDomain(title: string, description: string): [string, str
 export function keywordTags(text: string): string[] {
   const lower = text.toLowerCase();
   const rules: Array<[string, string[]]> = [
+    ['AI', ['claude', 'openai', 'deepseek', 'gemini', 'chatgpt', '人工智能']],
     ['Agent', ['agent', 'agentic']],
     ['LLM', ['llm', 'large language model']],
     ['RAG', ['rag', 'retrieval']],
@@ -229,5 +230,8 @@ export function keywordTags(text: string): string[] {
     ['Security', ['cyber', 'security', 'exploit']],
     ['MCP', ['mcp', 'model context protocol']],
   ];
-  return rules.filter(([, keys]) => keys.some((key) => lower.includes(key))).map(([tag]) => tag);
+  return [
+    ...(/(^|[^a-z])ai([^a-z]|$)/.test(lower) ? ['AI'] : []),
+    ...rules.filter(([, keys]) => keys.some((key) => lower.includes(key))).map(([tag]) => tag),
+  ].filter((tag, index, all) => all.indexOf(tag) === index);
 }

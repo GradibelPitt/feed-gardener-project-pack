@@ -1,3 +1,4 @@
+import { feedRatingContext, simulateFeed } from './feed-simulator.ts';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { defaultPreferences, type Preferences } from './feed.ts';
@@ -181,4 +182,25 @@ test('unused exploration slots are filled with eligible selected-topic items', (
     rankHarvestCandidates(items, profile({ exploration: 50 }), [], { now, limit: 5 }).length,
     5,
   );
+});
+
+test('saving a result preserves the scoring context and visible cards after reranking', () => {
+  const items = [item('agent', 'Agent'), item('rag', 'RAG')];
+  const before = rankHarvestCandidates(items, profile(), [], { now });
+  const saved = signal('https://example.org/rag', 'save', ['rag']);
+  const after = rankHarvestCandidates(items, profile(), [saved], { now });
+  assert.notEqual(before[0].key, after[0].key);
+  const context = feedRatingContext(before, 'Agents\0RAG');
+  assert.equal(feedRatingContext(after, 'Agents\0RAG'), context);
+  const ratings = new Map(
+    before.map((candidate) => [candidate.key, { score: 9, confidence: 0.9 }]),
+  );
+  assert.equal(simulateFeed(after, ratings, 8).items.length, before.length);
+  assert.notEqual(feedRatingContext(after, 'Databases'), context);
+  const changedTitle = after.map((candidate, index) =>
+    index === 0
+      ? { ...candidate, item: { ...candidate.item, title: 'A changed title' } }
+      : candidate,
+  );
+  assert.notEqual(feedRatingContext(changedTitle, 'Agents\0RAG'), context);
 });

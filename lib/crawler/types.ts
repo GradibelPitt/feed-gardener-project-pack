@@ -59,4 +59,6 @@ export type HarvestPayload = {
   sections: Record<FeedSection, HarvestItem[]>;
   health: SourceHealth[];
   warnings: string[];
+  nextCursor?: string | null;
+  nextCursors?: Partial<Record<'YouTube' | 'Bilibili', string | null>>;
 };

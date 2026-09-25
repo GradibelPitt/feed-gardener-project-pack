@@ -67,7 +67,12 @@ export function parseBilibiliSearch(
   payload: unknown,
   fetchedAt = new Date().toISOString(),
 ): HarvestItem[] {
-  const response = payload as { code?: unknown; data?: { result?: unknown } } | null;
+  const response = payload as {
+    code?: unknown;
+    data?: { result?: unknown; v_voucher?: unknown };
+  } | null;
+  if (response?.code === -352 || response?.data?.v_voucher)
+    throw new Error('Bilibili requires verification for this connection; try again later');
   if (response?.code !== 0 || !Array.isArray(response.data?.result))
     throw new Error('Bilibili search returned invalid data');
   return response.data.result.flatMap((entry: SearchVideo) => {
@@ -119,30 +124,133 @@ export function parseBilibiliSearch(
   });
 }
 
+async function searchPage(
+  term: string,
+  page: number,
+  before?: number,
+): Promise<{ items: HarvestItem[]; hasMore: boolean }> {
+  const endpoint = new URL(SEARCH_URL);
+  endpoint.searchParams.set('search_type', 'video');
+  endpoint.searchParams.set('keyword', term);
+  endpoint.searchParams.set('order', 'pubdate');
+  endpoint.searchParams.set('page', String(page));
+  if (before !== undefined) {
+    endpoint.searchParams.set('pubtime_begin_s', '1');
+    endpoint.searchParams.set('pubtime_end_s', String(before));
+  }
+  const response = await fetchWithTimeout(endpoint.toString(), {
+    headers: { Referer: 'https://search.bilibili.com/' },
+  });
+  if (!response.ok) throw new Error(`Bilibili search returned HTTP ${response.status}`);
+  const payload = await response.json();
+  const items = parseBilibiliSearch(payload);
+  const numPages = Number(payload?.data?.numPages);
+  return { items, hasMore: Number.isInteger(numPages) ? page < numPages : items.length >= 20 };
+}
+
+async function searchTerms(terms: string[], page: number) {
+  const successes: { items: HarvestItem[]; hasMore: boolean }[] = [];
+  const errors: string[] = [];
+  // Bilibili can require verification after a burst of requests. Keep the
+  // bilingual searches small and stop immediately when verification appears.
+  for (const term of terms) {
+    try {
+      successes.push(await searchPage(term, page));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+      if (message.includes('requires verification')) break;
+    }
+  }
+  if (!successes.length)
+    throw new Error(
+      errors.find((message) => message.includes('requires verification')) ??
+        errors[0] ??
+        'Bilibili search could not be completed',
+    );
+  return successes;
+}
+
 export async function fetchBilibiliSearch(
   tags: string[],
   localizedTags: string[] = [],
 ): Promise<HarvestItem[]> {
   const terms = bilibiliSearchTerms(tags, localizedTags);
   if (!terms.length) return [];
-  const outcomes = await Promise.allSettled(
-    terms.map(async (term) => {
-      const endpoint = new URL(SEARCH_URL);
-      endpoint.searchParams.set('search_type', 'video');
-      endpoint.searchParams.set('keyword', term);
-      endpoint.searchParams.set('page', '1');
-      const response = await fetchWithTimeout(endpoint.toString(), {
-        headers: { Referer: 'https://search.bilibili.com/' },
-      });
-      if (!response.ok) throw new Error(`Bilibili search returned HTTP ${response.status}`);
-      return parseBilibiliSearch(await response.json()).slice(0, 12);
-    }),
-  );
-  const successes = outcomes.filter(
-    (result): result is PromiseFulfilledResult<HarvestItem[]> => result.status === 'fulfilled',
-  );
-  if (!successes.length) throw new Error('Bilibili search could not be completed');
+  const successes = await searchTerms(terms, 1);
   return [
-    ...new Map(successes.flatMap((result) => result.value).map((item) => [item.id, item])).values(),
+    ...new Map(
+      successes.flatMap((result) => result.items.slice(0, 12)).map((item) => [item.id, item]),
+    ).values(),
   ].slice(0, 32);
+}
+
+export async function fetchBilibiliSearchPage(
+  tags: string[],
+  localizedTags: string[] = [],
+  cursor?: string,
+): Promise<{ items: HarvestItem[]; nextCursor: string | null }> {
+  const terms = bilibiliSearchTerms(tags, localizedTags);
+  if (!terms.length) return { items: [], nextCursor: null };
+  let bounds: Array<number | null | false> = Array(terms.length).fill(null);
+  if (cursor !== undefined) {
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as {
+        bounds?: unknown;
+      };
+      if (
+        !Array.isArray(parsed.bounds) ||
+        parsed.bounds.length !== terms.length ||
+        parsed.bounds.some(
+          (bound) =>
+            bound !== null &&
+            bound !== false &&
+            (!Number.isInteger(bound) || bound < 1 || bound > Date.now() / 1000 + 86400),
+        )
+      )
+        throw new Error('Invalid cursor');
+      bounds = parsed.bounds as Array<number | null | false>;
+    } catch {
+      throw new Error('Invalid Bilibili search cursor');
+    }
+  }
+  const nextBounds = [...bounds];
+  const successes: HarvestItem[][] = [];
+  const errors: string[] = [];
+  for (let index = 0; index < terms.length; index += 1) {
+    const bound = bounds[index];
+    if (bound === false) continue;
+    try {
+      const result = await searchPage(terms[index], 1, bound ?? undefined);
+      successes.push(result.items);
+      const oldest = Math.min(
+        ...result.items
+          .map((item) => (item.publishedAt ? Date.parse(item.publishedAt) / 1000 : NaN))
+          .filter(Number.isFinite),
+      );
+      nextBounds[index] =
+        result.items.length > 0 &&
+        Number.isFinite(oldest) &&
+        oldest > 1 &&
+        (bound === null || oldest < bound)
+          ? Math.floor(oldest) - 1
+          : false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(message);
+      if (message.includes('requires verification')) break;
+    }
+  }
+  if (!successes.length)
+    throw new Error(
+      errors.find((message) => message.includes('requires verification')) ??
+        errors[0] ??
+        'Bilibili search could not be completed',
+    );
+  return {
+    items: [...new Map(successes.flat().map((item) => [item.id, item])).values()],
+    nextCursor: nextBounds.some((bound) => bound !== false)
+      ? Buffer.from(JSON.stringify({ bounds: nextBounds })).toString('base64url')
+      : null,
+  };
 }

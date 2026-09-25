@@ -12,8 +12,8 @@ fi
 if node scripts/launch.mjs; then
   exit 0
 else
-  status=$?
+  launch_exit_code=$?
   print 'Feeder 启动失败。请查看上面的错误。'
   read -r '?按回车退出…'
-  exit "$status"
+  exit "$launch_exit_code"
 fi

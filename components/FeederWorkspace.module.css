@@ -3,6 +3,11 @@
   margin: 0 auto;
   padding: 32px 28px 80px;
   color: #243b31;
+  transition: width 200ms ease;
+}
+
+.workspaceExpanded {
+  width: min(1440px, 100%);
 }
 
 .header {
@@ -22,7 +27,46 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+}
+
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid #cbd6cc;
+  border-radius: 7px;
+  background: #fff;
+  color: #243b31;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.expandButton svg {
+  transition: transform 160ms ease;
+}
+
+.expandButton[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.cardDetails[hidden] {
+  display: none;
+}
+
+.cardDetails:not([hidden]) {
+  animation: sourcesFadeIn 180ms ease-out both;
+}
+
+.manageInterestsRow {
+  display: flex;
+  justify-content: flex-start;
+  margin: 14px 0;
 }
 
 .interestsHeading .eyebrow {
@@ -102,7 +146,7 @@
 
 .header h1 {
   margin: 0;
-  font-family: var(--font-serif, Georgia), Georgia, serif;
+  font-family: var(--font);
   font-size: clamp(35px, 5vw, 58px);
   font-weight: 500;
   letter-spacing: -0.05em;
@@ -165,6 +209,10 @@
   background: transparent;
 }
 
+.tabs button svg {
+  display: none;
+}
+
 .tabs button[aria-selected='true'] {
   background: #fff;
   box-shadow: 0 1px 4px #263b3022;
@@ -182,6 +230,78 @@
   cursor: default;
   color: #678174;
   background: #eaf2e9;
+}
+
+.searchForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.searchField {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #ccd7cd;
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: #405c4b;
+}
+
+.searchField input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.searchField input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  padding: 2px;
+  border-radius: 4px;
+  color: #678174;
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  background: #eaf2e9;
+  color: #243b31;
+}
+
+.searchBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid #cbd6cc;
+  border-radius: 8px;
+  background: #f2f6ee;
+  color: #28523b;
+  font-size: 13px;
+}
+
+.searchBanner strong {
+  font-weight: 700;
 }
 
 .feedControls {
@@ -230,15 +350,27 @@
 
 .scoreSlider {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   max-width: 490px;
+  margin-top: 10px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.guideSlider {
+  display: block;
+  width: min(490px, 100%);
 }
 
 .scoreSlider input {
   width: 100%;
   accent-color: #28523b;
+  transform: scaleY(0.86);
+  transform-origin: center;
+}
+
+.scorePanel .cardDetails {
+  margin-top: 14px;
 }
 
 .scoreProgressText {
@@ -384,6 +516,7 @@
 
 .youtubeResults {
   margin-top: 32px;
+  container-type: inline-size;
 }
 
 .youtubeResults h2 {
@@ -394,6 +527,62 @@
 .youtubeResults p {
   color: #61736b;
   font-size: 12px;
+}
+
+.youtubeHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.youtubeHeading label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #536d5b;
+  font-size: 12px;
+}
+
+.youtubeHeading select {
+  padding: 7px;
+  border: 1px solid #cbd6cc;
+  border-radius: 6px;
+  background: #fffefa;
+  color: #243b31;
+}
+
+.videoCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 15px;
+}
+
+.videoCards[data-columns='1'] {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.videoCards[data-columns='2'] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.videoCards[data-columns='3'] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.videoCards[data-columns='4'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@container (max-width: 700px) {
+  .videoCards[data-columns='3'],
+  .videoCards[data-columns='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 440px) {
+  .videoCards {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 .cards {
@@ -701,6 +890,152 @@
   gap: 16px;
 }
 
+.discoverSplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.discoverMain {
+  min-width: 0;
+}
+
+.discoverSources {
+  min-width: 0;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding-right: 4px;
+  animation: sourcesFadeIn 180ms ease-out both;
+}
+
+@keyframes sourcesFadeIn {
+  from {
+    opacity: 0.18;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.workspaceVideoMode .header > .eyebrow {
+  display: none;
+}
+
+.workspaceVideoActive .header {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  background: #f3f4eef2;
+  backdrop-filter: blur(12px);
+}
+
+.workspaceVideoMode .header {
+  padding: 7px 0 9px;
+}
+
+.workspaceVideoMode .header h1 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.workspaceVideoMode .toolbar {
+  padding: 8px;
+  border: 1px solid #d3ddd3;
+  border-radius: 10px;
+  background: #f7f9f4f2;
+  backdrop-filter: blur(12px);
+}
+
+.workspaceVideoMode .refreshButton {
+  display: none;
+}
+
+.workspaceVideoMode .guideRefresh[data-guide-active] .refreshButton {
+  display: inline-flex;
+}
+
+.workspaceVideoMode .guideRefresh[data-guide-active] .actionLabel {
+  display: inline;
+}
+
+.workspaceVideoMode .actionLabel {
+  display: none;
+}
+
+.workspaceVideoMode .tabs button {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+}
+
+.workspaceVideoMode .tabs button svg {
+  display: block;
+}
+
+.workspaceVideoMode .tabLabel {
+  display: none;
+}
+
+.workspaceVideoMode .discoverSplit {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.workspaceVideoMode .discoverMain {
+  display: contents;
+}
+
+.workspaceVideoMode .discoverSettings,
+.workspaceVideoMode .discoverSources {
+  display: none;
+}
+
+.workspaceVideoMode .discoverSettings[data-open='true'],
+.workspaceVideoMode .discoverSources[data-open='true'] {
+  display: block;
+  width: 100%;
+  max-height: none;
+  margin-bottom: 14px;
+  overflow: visible;
+  animation: sourcesFadeIn 180ms ease-out both;
+}
+
+.workspaceVideoMode .discoverSettings {
+  order: 0;
+}
+
+.workspaceVideoMode .discoverSources {
+  order: 1;
+  position: static;
+}
+
+.workspaceVideoMode .discoverResults {
+  order: 2;
+  width: 100%;
+  min-width: 0;
+}
+
+.olderVideos {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 76px;
+  color: #536d5b;
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discoverSources,
+  .workspaceVideoMode .discoverSettings[data-open='true'],
+  .workspaceVideoMode .discoverSources[data-open='true'] {
+    animation: none;
+  }
+}
+
 .restoreList {
   display: flex;
   flex-wrap: wrap;
@@ -724,6 +1059,17 @@
 
 .loadMore:hover {
   background: #e1eddb;
+}
+
+@media (max-width: 960px) {
+  .discoverSplit {
+    grid-template-columns: 1fr;
+  }
+  .discoverSources {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 @media (max-width: 600px) {

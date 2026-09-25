@@ -1,5 +1,6 @@
 import { classifyDomain, cleanText, fetchWithTimeout, keywordTags } from './core.ts';
 import type { HarvestItem } from './types.ts';
+import { videoSearchTerms } from './video-search-terms.ts';
 
 type SearchEntry = {
   id?: { videoId?: string };
@@ -68,28 +69,73 @@ export function youtubeEmbedUrl(value: string): string | null {
   }
 }
 
-export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]> {
+type SearchCursor = { nextIndex: number; tokens: Array<string | false | null> };
+
+function readCursor(value: string | undefined, termCount: number): SearchCursor {
+  if (!value) return { nextIndex: 0, tokens: Array(termCount).fill(null) };
+  try {
+    if (value.length > 2048) throw new Error('Invalid cursor');
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString()) as SearchCursor;
+    if (
+      !Number.isInteger(parsed.nextIndex) ||
+      parsed.nextIndex < 0 ||
+      parsed.nextIndex >= termCount ||
+      !Array.isArray(parsed.tokens) ||
+      parsed.tokens.length !== termCount ||
+      parsed.tokens.some(
+        (token) =>
+          token !== null &&
+          token !== false &&
+          (typeof token !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(token)),
+      )
+    )
+      throw new Error('Invalid cursor');
+    return parsed;
+  } catch {
+    throw new Error('Invalid YouTube search cursor');
+  }
+}
+
+export async function fetchYouTubeSearchPage(
+  tags: string[],
+  localizedTags: string[] = [],
+  cursor?: string,
+): Promise<{ items: HarvestItem[]; nextCursor: string | null }> {
   const apiKey = youtubeSearchApiKey();
-  if (!apiKey) return [];
-  const terms = tags
-    .map((tag) => tag.normalize('NFKC').trim().slice(0, 80))
-    .filter(Boolean)
-    .slice(0, 2);
-  if (!terms.length) return [];
+  if (!apiKey) return { items: [], nextCursor: null };
+  const terms = videoSearchTerms(tags, localizedTags);
+  if (!terms.length) return { items: [], nextCursor: null };
+  const state = readCursor(cursor, terms.length);
+  const index = state.nextIndex;
+  if (state.tokens[index] === false) throw new Error('Invalid YouTube search cursor');
   const endpoint = new URL('https://www.googleapis.com/youtube/v3/search');
   endpoint.searchParams.set('part', 'snippet');
   endpoint.searchParams.set('type', 'video');
   endpoint.searchParams.set('videoEmbeddable', 'true');
-  endpoint.searchParams.set('maxResults', '20');
-  endpoint.searchParams.set('q', terms.join(' '));
+  endpoint.searchParams.set('maxResults', '30');
+  endpoint.searchParams.set('q', terms[index]);
+  if (state.tokens[index]) endpoint.searchParams.set('pageToken', state.tokens[index]);
   const response = await fetchYouTubeEndpoint(endpoint, apiKey);
   if (!response.ok) throw new Error(`YouTube search returned HTTP ${response.status}`);
-  const payload = (await response.json()) as { items?: SearchEntry[] };
+  const payload = (await response.json()) as { items?: SearchEntry[]; nextPageToken?: string };
   if (!Array.isArray(payload.items)) throw new Error('YouTube search returned invalid data');
+  const tokens = [...state.tokens];
+  tokens[index] =
+    payload.nextPageToken && /^[A-Za-z0-9_-]{1,256}$/.test(payload.nextPageToken)
+      ? payload.nextPageToken
+      : false;
+  const nextIndex = Array.from(
+    { length: terms.length },
+    (_, offset) => (index + offset + 1) % terms.length,
+  ).find((candidate) => tokens[candidate] !== false);
+  const nextCursor =
+    nextIndex === undefined
+      ? null
+      : Buffer.from(JSON.stringify({ nextIndex, tokens })).toString('base64url');
   const videoIds = payload.items
     .map((entry) => entry.id?.videoId)
     .filter((id): id is string => Boolean(id && /^[A-Za-z0-9_-]{11}$/.test(id)));
-  if (!videoIds.length) return [];
+  if (!videoIds.length) return { items: [], nextCursor };
   const statusEndpoint = new URL('https://www.googleapis.com/youtube/v3/videos');
   statusEndpoint.searchParams.set('part', 'status');
   statusEndpoint.searchParams.set('id', videoIds.join(','));
@@ -105,7 +151,7 @@ export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]>
       .map((item) => item.id),
   );
   const fetchedAt = new Date().toISOString();
-  return payload.items.flatMap((entry) => {
+  const items = payload.items.flatMap((entry) => {
     const videoId = entry.id?.videoId;
     const snippet = entry.snippet;
     if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId) || !snippet?.title) return [];
@@ -138,4 +184,9 @@ export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]>
       },
     ];
   });
+  return { items, nextCursor };
+}
+
+export async function fetchYouTubeSearch(tags: string[]): Promise<HarvestItem[]> {
+  return (await fetchYouTubeSearchPage(tags)).items;
 }

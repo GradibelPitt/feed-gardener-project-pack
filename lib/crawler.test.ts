@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseArxivFeed } from './crawler/arxiv.ts';
-import { classifyDomain } from './crawler/core.ts';
+import { classifyDomain, keywordTags } from './crawler/core.ts';
 import { parseGithubTrendingRss } from './crawler/github.ts';
 import { detectSocialPlatform, SocialResolveError } from './crawler/social.ts';
 import { defaultPreferences, matchesHarvestPreferences } from './feed.ts';
-import { fetchYouTubeSearch, youtubeEmbedUrl } from './crawler/youtube.ts';
-import { bilibiliEmbedUrl, bilibiliSearchTerms, fetchBilibiliSearch } from './crawler/bilibili.ts';
+import { fetchYouTubeSearch, fetchYouTubeSearchPage, youtubeEmbedUrl } from './crawler/youtube.ts';
+import { videoSearchTerms } from './crawler/video-search-terms.ts';
+import {
+  bilibiliEmbedUrl,
+  bilibiliSearchTerms,
+  fetchBilibiliSearch,
+  fetchBilibiliSearchPage,
+} from './crawler/bilibili.ts';
 
 test('classifier keeps vector database content out of the short RAG token false positive', () => {
   const [domain, matches] = classifyDomain(
@@ -112,7 +118,92 @@ test('YouTube search maps official title and thumbnail and ignores malformed vid
   }
 });
 
-test('Bilibili searches both language labels in parallel and deduplicates video cards', async () => {
+test('AI video search rotates through specific terms and keeps YouTube pagination', async () => {
+  const before = process.env.YOUTUBE_API_KEY;
+  const fetchBefore = globalThis.fetch;
+  process.env.YOUTUBE_API_KEY = 'test-key';
+  const queries: Array<[string | null, string | null]> = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/videos'))
+      return Response.json({
+        items: [{ id: 'abcdefghijk', status: { embeddable: true, madeForKids: false } }],
+      });
+    queries.push([url.searchParams.get('q'), url.searchParams.get('pageToken')]);
+    return Response.json({
+      items: [
+        { id: { videoId: 'abcdefghijk' }, snippet: { title: 'Claude and AI', description: '' } },
+      ],
+      ...(queries.length === 1 ? { nextPageToken: 'NEXT_PAGE' } : {}),
+    });
+  };
+  try {
+    assert.deepEqual(videoSearchTerms(['AI']).slice(0, 4), ['AI', 'Claude', 'OpenAI', 'DeepSeek']);
+    const first = await fetchYouTubeSearchPage(['AI']);
+    assert.equal(first.items.length, 1);
+    assert.ok(first.nextCursor);
+    const second = await fetchYouTubeSearchPage(['AI'], [], first.nextCursor!);
+    assert.equal(second.items[0]?.id, first.items[0]?.id);
+    assert.deepEqual(queries, [
+      ['AI', null],
+      ['Claude', null],
+    ]);
+  } finally {
+    globalThis.fetch = fetchBefore;
+    if (before === undefined) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = before;
+  }
+});
+
+test('Bilibili continues each tag with an older publication date window', async () => {
+  assert.ok(keywordTags('Claude tutorial').includes('AI'));
+  assert.ok(keywordTags('DeepSeek overview').includes('AI'));
+  const before = globalThis.fetch;
+  const dateBounds: Array<string | null> = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    const dateBound = url.searchParams.get('pubtime_end_s');
+    dateBounds.push(dateBound);
+    assert.equal(url.searchParams.get('page'), '1');
+    assert.equal(url.searchParams.get('order'), 'pubdate');
+    if (dateBound) assert.equal(url.searchParams.get('pubtime_begin_s'), '1');
+    return Response.json({
+      code: 0,
+      data: {
+        result:
+          dateBound === '1599999999'
+            ? []
+            : [
+                {
+                  bvid: dateBound ? 'BV1pYaA6FE5U' : 'BV1pYaA6FE5T',
+                  title: 'Claude AI',
+                  description: '',
+                  author: 'Lab',
+                  pubdate: dateBound ? 1600000000 : 1790000000,
+                },
+              ],
+      },
+    });
+  };
+  try {
+    const first = await fetchBilibiliSearchPage(['AI'], ['人工智能']);
+    assert.equal(first.items.length, 1);
+    assert.ok(first.nextCursor);
+    const second = await fetchBilibiliSearchPage(['AI'], ['人工智能'], first.nextCursor!);
+    assert.equal(second.items.length, 1);
+    assert.ok(second.nextCursor);
+    assert.notEqual(first.items[0].id, second.items[0].id);
+    const third = await fetchBilibiliSearchPage(['AI'], ['人工智能'], second.nextCursor!);
+    assert.equal(third.items.length, 0);
+    assert.equal(third.nextCursor, null);
+    assert.ok(dateBounds.includes('1789999999'));
+    assert.ok(dateBounds.includes('1599999999'));
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
+test('Bilibili searches both language labels and deduplicates video cards', async () => {
   const before = globalThis.fetch;
   const requested: string[] = [];
   globalThis.fetch = async (input) => {
@@ -166,6 +257,45 @@ test('Bilibili searches both language labels in parallel and deduplicates video 
       }),
       true,
     );
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
+test('Bilibili stops searching when its public API requires verification', async () => {
+  const before = globalThis.fetch;
+  const requested: string[] = [];
+  globalThis.fetch = async (input) => {
+    requested.push(new URL(String(input)).searchParams.get('keyword') ?? '');
+    return Response.json({ code: 0, data: { v_voucher: 'voucher_example' } });
+  };
+  try {
+    await assert.rejects(
+      fetchBilibiliSearchPage(['AI'], ['人工智能']),
+      /Bilibili requires verification for this connection/,
+    );
+    assert.deepEqual(requested, ['AI']);
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
+test('Bilibili keeps valid results when one language search fails', async () => {
+  const before = globalThis.fetch;
+  const requested: string[] = [];
+  globalThis.fetch = async (input) => {
+    const term = new URL(String(input)).searchParams.get('keyword') ?? '';
+    requested.push(term);
+    if (term === 'AI') return new Response(null, { status: 503 });
+    return Response.json({
+      code: 0,
+      data: { result: [{ bvid: 'BV1pYaA6FE5T', title: '人工智能' }] },
+    });
+  };
+  try {
+    const result = await fetchBilibiliSearchPage(['AI'], ['人工智能']);
+    assert.deepEqual(requested, ['AI', '人工智能']);
+    assert.equal(result.items.length, 1);
   } finally {
     globalThis.fetch = before;
   }

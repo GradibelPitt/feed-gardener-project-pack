@@ -31,8 +31,8 @@ export default function InstructionsPage() {
             <strong>{t('发现内容', 'Discover')}</strong>
             <span>
               {t(
-                '选择 1–10 的 Jev 目标均分，查看逐批模拟的 Feed 和公开来源板块。',
-                'Choose a Jev target average from 1–10, then explore the iterated feed and public-source boards.',
+                '选择 1–10 的 Jev 最低分，推荐流和来源页只展示达到门槛且置信度合格的内容。',
+                'Choose a minimum Jev score from 1–10. The feed and source boards show only confident scores meeting this threshold.',
               )}
             </span>
           </li>
@@ -49,8 +49,8 @@ export default function InstructionsPage() {
             <strong>{t('调整相关度', 'Adjust relevance')}</strong>
             <span>
               {t(
-                '在 Discover 用一个 Relevance 滑杆调整内容范围。调高更贴近标签但结果可能更少；调低更容易看到相邻领域，也可能偏离标签。',
-                'Use the Relevance slider in Discover. Higher stays closer to your tags but may show fewer results; lower includes more related topics and may drift from your tags.',
+                'Relevance 是每条内容的最低分：设为 9，就只显示 Jev 至少 9 分的内容。调高可能减少结果。',
+                'Relevance is the minimum score for each item: set it to 9 to show only Jev scores of at least 9. Higher may show fewer results.',
               )}
             </span>
           </li>
@@ -60,8 +60,8 @@ export default function InstructionsPage() {
           <strong>{t('当前范围', 'Current scope')}</strong>
           <p>
             {t(
-              '当前使用公开候选与手动导入链接；在 Discover → Sources → YouTube 输入 Data API key 后才可搜索。key 仅在本机服务内存中保存至重启。YouTube 嵌入展示与 Jev 均分分开。反馈只更新 Feeder 本地兴趣。',
-              'Current candidates come from public sources and manually imported links. Enter a Data API key in Discover → Sources → YouTube to enable search. The local server keeps it in memory until restart. YouTube embeds stay outside the Jev average. Feedback updates Feeder locally.',
+              '当前使用公开候选与手动导入链接；在 Discover → Sources → YouTube 输入 Data API key 后才可搜索。key 仅在本机服务内存中保存至重启。Bilibili 和 YouTube 都必须先通过 Jev 评分与 Relevance 筛选。反馈只更新 Feeder 本地兴趣。',
+              'Current candidates come from public sources and manually imported links. Enter a Data API key in Discover → Sources → YouTube to enable search. The local server keeps it in memory until restart. Both Bilibili and YouTube must pass Jev scoring and the Relevance threshold. Feedback updates Feeder locally.',
             )}
           </p>
         </aside>

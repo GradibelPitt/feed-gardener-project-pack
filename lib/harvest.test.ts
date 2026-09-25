@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { harvestPublicSources } from './crawler/harvest.ts';
-import { mergeHarvestPayload } from './crawler/merge.ts';
+import { appendHarvestPayload, mergeHarvestPayload } from './crawler/merge.ts';
 import {
   setYouTubeSearchApiKey,
   youtubeSearchConfigured,
@@ -79,6 +79,58 @@ test('scoped results replace one source while retaining other fetched sections',
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('video pages append in order and duplicate video IDs do not reappear', () => {
+  const item = (id: string) => ({
+    id,
+    section: 'social' as const,
+    source: 'YouTube' as const,
+    title: id,
+    summary: '',
+    author: '',
+    url: `https://www.youtube.com/watch?v=${id}`,
+    publishedAt: null,
+    tags: ['YouTube'],
+    domain: 'Technology',
+    domainKeywords: [],
+    provenance: {
+      mode: 'official_api' as const,
+      sourceUrl: 'https://www.googleapis.com/youtube/v3/search',
+      fetchedAt: '',
+    },
+  });
+  const base = {
+    generatedAt: '',
+    cache: 'fresh' as const,
+    sections: { social: [item('video-one'), item('video-two')], academic: [], opensource: [] },
+    health: [
+      {
+        source: 'YouTube' as const,
+        section: 'social' as const,
+        state: 'live' as const,
+        label: '',
+        labelEn: '',
+        detail: '',
+        detailEn: '',
+        itemCount: 2,
+      },
+    ],
+    warnings: [],
+    nextCursor: 'next',
+  };
+  const incoming = {
+    ...base,
+    sections: { ...base.sections, social: [item('video-two'), item('video-three')] },
+    nextCursor: null,
+  };
+  const merged = appendHarvestPayload(base, incoming);
+  assert.deepEqual(
+    merged.sections.social.map((video) => video.id),
+    ['video-one', 'video-two', 'video-three'],
+  );
+  assert.equal(merged.health[0]?.itemCount, 3);
+  assert.equal(merged.nextCursor, null);
 });
 
 test('entering a YouTube key enables search and invalidates the unconfigured snapshot', async () => {

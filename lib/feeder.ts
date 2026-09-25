@@ -127,7 +127,7 @@ export function rankHarvestCandidates(
   options: { limit?: number; now?: number; pool?: boolean } = {},
 ): FeederCandidate[] {
   const now = options.now ?? Date.now();
-  const limit = Math.max(0, Math.min(100, Math.floor(options.limit ?? 30)));
+  const limit = Math.max(0, Math.min(300, Math.floor(options.limit ?? 30)));
   const excluded = new Set(
     events
       .filter((event) => event.signal === 'hide' || event.signal === 'not_interested')
