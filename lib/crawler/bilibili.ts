@@ -3,8 +3,8 @@ import { classifyDomain, cleanText, fetchWithTimeout, keywordTags } from './core
 import type { HarvestItem } from './types.ts';
 
 const SEARCH_URL = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
+const APP_SEARCH_URL = 'https://app.bilibili.com/x/v2/search';
 const SEARCH_HOME_URL = 'https://search.bilibili.com/';
-const ANONYMOUS_SESSION_URL = 'https://api.bilibili.com/x/frontend/finger/spi';
 const BILIBILI_HEADERS = {
   Referer: SEARCH_HOME_URL,
   Origin: 'https://search.bilibili.com',
@@ -79,6 +79,7 @@ export function bilibiliEmbedUrl(bvid: string): string | null {
 export function parseBilibiliSearch(
   payload: unknown,
   fetchedAt = new Date().toISOString(),
+  sourceUrl = SEARCH_URL,
 ): HarvestItem[] {
   const response = payload as {
     code?: unknown;
@@ -131,18 +132,61 @@ export function parseBilibiliSearch(
         domainKeywords,
         ...(imageUrl.startsWith('https://') ? { imageUrl } : {}),
         embedUrl,
-        provenance: { mode: 'public_api' as const, sourceUrl: SEARCH_URL, fetchedAt },
+        provenance: { mode: 'public_api' as const, sourceUrl, fetchedAt },
       },
     ];
   });
+}
+
+export function parseBilibiliAppSearch(
+  payload: unknown,
+  fetchedAt = new Date().toISOString(),
+): HarvestItem[] {
+  const response = payload as {
+    code?: unknown;
+    data?: { item?: unknown; v_voucher?: unknown };
+  } | null;
+  if (response?.code === -352 || response?.data?.v_voucher)
+    throw new Error('Bilibili requires verification for this connection; try again later');
+  if (
+    response?.code !== 0 ||
+    !response.data ||
+    (response.data.item !== undefined && !Array.isArray(response.data.item))
+  )
+    throw new Error('Bilibili app search returned invalid data');
+  const entries = Array.isArray(response.data.item) ? response.data.item : [];
+  const result = entries.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const video = entry as {
+      goto?: unknown;
+      share?: { video?: { bvid?: unknown } };
+      title?: unknown;
+      author?: unknown;
+      cover?: unknown;
+      ptime?: unknown;
+    };
+    if (video.goto !== 'av') return [];
+    const published = Number(video.ptime);
+    return [
+      {
+        bvid: video.share?.video?.bvid,
+        title: video.title,
+        author: video.author,
+        pic: video.cover,
+        pubdate: Number.isFinite(published) && published > 0 ? published : undefined,
+      },
+    ];
+  });
+  return parseBilibiliSearch({ code: 0, data: { result } }, fetchedAt, APP_SEARCH_URL);
 }
 
 async function searchPage(
   term: string,
   page: number,
   before?: number,
-  session?: { cookie: string | null },
-): Promise<{ items: HarvestItem[]; hasMore: boolean }> {
+  session?: { appPreferred: boolean },
+): Promise<{ items: HarvestItem[]; hasMore: boolean; mode: 'web' | 'app' }> {
+  if (session?.appPreferred) return searchAppPage(term, 1);
   const endpoint = new URL(SEARCH_URL);
   endpoint.searchParams.set('search_type', 'video');
   endpoint.searchParams.set('keyword', term);
@@ -152,67 +196,62 @@ async function searchPage(
     endpoint.searchParams.set('pubtime_begin_s', '1');
     endpoint.searchParams.set('pubtime_end_s', String(before));
   }
-  const search = () =>
-    fetchWithTimeout(endpoint.toString(), {
-      headers: {
-        ...BILIBILI_HEADERS,
-        Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
-        ...(session?.cookie ? { Cookie: session.cookie } : {}),
-      },
-    });
-  let response = await search();
-  if (response.status === 412 && session && !session.cookie) {
-    // Bilibili sometimes requires an anonymous search session from cloud hosts.
-    session.cookie = await anonymousSearchCookie();
-    response = await search();
+  const response = await fetchWithTimeout(endpoint.toString(), {
+    headers: {
+      ...BILIBILI_HEADERS,
+      Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
+    },
+  });
+  if (response.status === 412 && session) {
+    // The web endpoint can reject cloud traffic while the public app search remains available.
+    session.appPreferred = true;
+    return searchAppPage(term, 1);
   }
   if (!response.ok) throw new Error(`Bilibili search returned HTTP ${response.status}`);
   const payload = await response.json();
   const items = parseBilibiliSearch(payload);
   const numPages = Number(payload?.data?.numPages);
-  return { items, hasMore: Number.isInteger(numPages) ? page < numPages : items.length >= 20 };
+  return {
+    items,
+    hasMore: Number.isInteger(numPages) ? page < numPages : items.length >= 20,
+    mode: 'web',
+  };
 }
 
-async function anonymousSearchCookie(): Promise<string> {
-  const fingerprint = await fetchWithTimeout(
-    ANONYMOUS_SESSION_URL,
-    { headers: BILIBILI_HEADERS },
-    6_000,
-  );
-  if (fingerprint.ok) {
-    const payload = (await fingerprint.json()) as {
-      code?: unknown;
-      data?: { b_3?: unknown; b_4?: unknown };
-    };
-    if (
-      payload.code === 0 &&
-      typeof payload.data?.b_3 === 'string' &&
-      typeof payload.data?.b_4 === 'string'
-    ) {
-      return `buvid3=${payload.data.b_3}; buvid4=${payload.data.b_4}; b_nut=${Math.floor(Date.now() / 1000)}`;
-    }
-  }
-  const response = await fetchWithTimeout(
-    SEARCH_HOME_URL,
-    { headers: BILIBILI_HEADERS, redirect: 'manual' },
-    6_000,
-  );
-  if (!response.ok) throw new Error(`Bilibili session returned HTTP ${response.status}`);
-  const setCookie = response.headers.get('set-cookie') ?? '';
-  const cookies = ['buvid3', 'b_nut'].flatMap((name) => {
-    const match = setCookie.match(new RegExp(`(?:^|[,\\s])${name}=([^;,\\s]+)`));
-    return match ? [`${name}=${match[1]}`] : [];
+async function searchAppPage(
+  term: string,
+  page: number,
+): Promise<{ items: HarvestItem[]; hasMore: boolean; mode: 'app' }> {
+  const endpoint = new URL(APP_SEARCH_URL);
+  endpoint.searchParams.set('platform', 'android');
+  endpoint.searchParams.set('build', '7800300');
+  endpoint.searchParams.set('mobi_app', 'android');
+  endpoint.searchParams.set('keyword', term);
+  endpoint.searchParams.set('order', 'pubdate');
+  endpoint.searchParams.set('pn', String(page));
+  endpoint.searchParams.set('ps', '20');
+  const response = await fetchWithTimeout(endpoint.toString(), {
+    headers: {
+      ...BILIBILI_HEADERS,
+      Referer: 'https://m.bilibili.com/',
+      Origin: 'https://m.bilibili.com',
+    },
   });
-  await response.body?.cancel();
-  if (!cookies.some((cookie) => cookie.startsWith('buvid3=')))
-    throw new Error('Bilibili did not provide an anonymous search session');
-  return cookies.join('; ');
+  if (!response.ok) throw new Error(`Bilibili app search returned HTTP ${response.status}`);
+  const payload = await response.json();
+  const items = parseBilibiliAppSearch(payload);
+  const rawItems = payload?.data?.item;
+  return {
+    items,
+    hasMore: page < 50 && Array.isArray(rawItems) && rawItems.length >= 20,
+    mode: 'app',
+  };
 }
 
 async function searchTerms(terms: string[], page: number) {
   const successes: { items: HarvestItem[]; hasMore: boolean }[] = [];
   const errors: string[] = [];
-  const session = { cookie: null as string | null };
+  const session = { appPreferred: false };
   // Bilibili can require verification after a burst of requests. Keep the
   // bilingual searches small and stop immediately when verification appears.
   for (const term of terms) {
@@ -255,10 +294,12 @@ export async function fetchBilibiliSearchPage(
   const terms = bilibiliSearchTerms(tags, localizedTags);
   if (!terms.length) return { items: [], nextCursor: null };
   let bounds: Array<number | null | false> = Array(terms.length).fill(null);
+  let appPages: Array<number | null> = Array(terms.length).fill(null);
   if (cursor !== undefined) {
     try {
       const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString()) as {
         bounds?: unknown;
+        appPages?: unknown;
       };
       if (
         !Array.isArray(parsed.bounds) ||
@@ -271,21 +312,40 @@ export async function fetchBilibiliSearchPage(
         )
       )
         throw new Error('Invalid cursor');
+      if (
+        parsed.appPages !== undefined &&
+        (!Array.isArray(parsed.appPages) ||
+          parsed.appPages.length !== terms.length ||
+          parsed.appPages.some(
+            (page) => page !== null && (!Number.isInteger(page) || page < 1 || page > 50),
+          ))
+      )
+        throw new Error('Invalid cursor');
       bounds = parsed.bounds as Array<number | null | false>;
+      if (parsed.appPages) appPages = parsed.appPages as Array<number | null>;
     } catch {
       throw new Error('Invalid Bilibili search cursor');
     }
   }
   const nextBounds = [...bounds];
+  const nextAppPages = [...appPages];
   const successes: HarvestItem[][] = [];
   const errors: string[] = [];
-  const session = { cookie: null as string | null };
+  const session = { appPreferred: false };
   for (let index = 0; index < terms.length; index += 1) {
     const bound = bounds[index];
-    if (bound === false) continue;
+    const appPage = appPages[index];
+    if (bound === false && appPage === null) continue;
     try {
-      const result = await searchPage(terms[index], 1, bound ?? undefined, session);
+      const result = appPage
+        ? await searchAppPage(terms[index], appPage)
+        : await searchPage(terms[index], 1, bound || undefined, session);
       successes.push(result.items);
+      if (result.mode === 'app') {
+        nextBounds[index] = false;
+        nextAppPages[index] = result.hasMore ? (appPage ?? 1) + 1 : null;
+        continue;
+      }
       const oldest = Math.min(
         ...result.items
           .map((item) => (item.publishedAt ? Date.parse(item.publishedAt) / 1000 : NaN))
@@ -295,9 +355,10 @@ export async function fetchBilibiliSearchPage(
         result.items.length > 0 &&
         Number.isFinite(oldest) &&
         oldest > 1 &&
-        (bound === null || oldest < bound)
+        (bound === null || (typeof bound === 'number' && oldest < bound))
           ? Math.floor(oldest) - 1
           : false;
+      nextAppPages[index] = null;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(message);
@@ -312,8 +373,11 @@ export async function fetchBilibiliSearchPage(
     );
   return {
     items: [...new Map(successes.flat().map((item) => [item.id, item])).values()],
-    nextCursor: nextBounds.some((bound) => bound !== false)
-      ? Buffer.from(JSON.stringify({ bounds: nextBounds })).toString('base64url')
-      : null,
+    nextCursor:
+      nextBounds.some((bound) => bound !== false) || nextAppPages.some((page) => page !== null)
+        ? Buffer.from(JSON.stringify({ bounds: nextBounds, appPages: nextAppPages })).toString(
+            'base64url',
+          )
+        : null,
   };
 }

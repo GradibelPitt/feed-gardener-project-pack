@@ -280,33 +280,48 @@ test('Bilibili stops searching when its public API requires verification', async
   }
 });
 
-test('Bilibili retries a blocked search with an anonymous session', async () => {
+test('Bilibili uses its public app search when web search blocks the hosted site', async () => {
   const before = globalThis.fetch;
   const requests: string[] = [];
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
-    requests.push(url.pathname);
-    if (url.pathname === '/x/frontend/finger/spi')
-      return Response.json({ code: 0, data: { b_3: 'test-session', b_4: 'test-session-4' } });
-    const headers = new Headers(init?.headers);
-    assert.equal(headers.get('origin'), 'https://search.bilibili.com');
-    assert.equal(headers.get('sec-fetch-site'), 'same-site');
-    assert.equal(headers.get('referer'), 'https://search.bilibili.com/all?keyword=Robot%20demo');
-    const cookie = headers.get('cookie');
-    if (!cookie) return new Response(null, { status: 412 });
-    assert.match(cookie, /^buvid3=test-session; buvid4=test-session-4; b_nut=\d+$/);
+    requests.push(`${url.hostname}${url.pathname}?${url.searchParams.get('pn') ?? 'web'}`);
+    if (url.hostname === 'api.bilibili.com') {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get('origin'), 'https://search.bilibili.com');
+      assert.equal(headers.get('sec-fetch-site'), 'same-site');
+      assert.equal(headers.get('referer'), 'https://search.bilibili.com/all?keyword=Robot%20demo');
+      return new Response(null, { status: 412 });
+    }
+    assert.equal(url.hostname, 'app.bilibili.com');
+    assert.equal(url.searchParams.get('order'), 'pubdate');
+    const page = Number(url.searchParams.get('pn'));
     return Response.json({
       code: 0,
-      data: { result: [{ bvid: 'BV1pYaA6FE5T', title: 'Robot demo' }] },
+      data: {
+        item: Array.from({ length: page === 1 ? 20 : 1 }, (_, index) => ({
+          goto: 'av',
+          title: `Robot demo ${index}`,
+          author: 'Lab',
+          cover: 'https://i0.hdslb.com/example.jpg',
+          ptime: 1790373000 - index - page * 20,
+          share: { video: { bvid: `BV${String((page - 1) * 20 + index).padStart(10, '0')}` } },
+        })),
+      },
     });
   };
   try {
-    const result = await fetchBilibiliSearchPage(['Robot demo']);
-    assert.equal(result.items.length, 1);
+    const first = await fetchBilibiliSearchPage(['Robot demo']);
+    assert.equal(first.items.length, 20);
+    assert.equal(first.items[0].provenance.sourceUrl, 'https://app.bilibili.com/x/v2/search');
+    assert.ok(first.nextCursor);
+    const second = await fetchBilibiliSearchPage(['Robot demo'], [], first.nextCursor!);
+    assert.equal(second.items.length, 1);
+    assert.equal(second.nextCursor, null);
     assert.deepEqual(requests, [
-      '/x/web-interface/wbi/search/type',
-      '/x/frontend/finger/spi',
-      '/x/web-interface/wbi/search/type',
+      'api.bilibili.com/x/web-interface/wbi/search/type?web',
+      'app.bilibili.com/x/v2/search?1',
+      'app.bilibili.com/x/v2/search?2',
     ]);
   } finally {
     globalThis.fetch = before;
