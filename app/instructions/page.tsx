@@ -46,11 +46,11 @@ export default function InstructionsPage() {
             </span>
           </li>
           <li>
-            <strong>{t('调整兴趣权重', 'Tune your interests')}</strong>
+            <strong>{t('调整相关度', 'Adjust relevance')}</strong>
             <span>
               {t(
-                '在 My garden 调整标签 JEV；它只影响 Feeder，不改变平台推荐。',
-                'Adjust tag JEV in My garden. It shapes Feeder only, not source-platform recommendations.',
+                '在 Discover 用一个 Relevance 滑杆调整内容范围。调高更贴近标签但结果可能更少；调低更容易看到相邻领域，也可能偏离标签。',
+                'Use the Relevance slider in Discover. Higher stays closer to your tags but may show fewer results; lower includes more related topics and may drift from your tags.',
               )}
             </span>
           </li>

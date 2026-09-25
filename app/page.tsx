@@ -6,7 +6,6 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronRight,
   Code2,
   Compass,
   Cpu,
@@ -20,12 +19,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import Onboarding, { type OnboardingStep } from '@/components/Onboarding';
 import ResourceLibrary from '@/components/ResourceLibrary';
-import WorkspaceSidebar, {
-  WORKSPACE_TABS,
-  type WorkspacePage,
-} from '@/components/WorkspaceSidebar';
+import WorkspaceSidebar, { type WorkspacePage } from '@/components/WorkspaceSidebar';
 import FeederWorkspace from '@/components/FeederWorkspace';
 import SelectedTagsToggle from '@/components/SelectedTagsToggle';
 import YouTubeConnection from '@/components/YouTubeConnection';
@@ -35,19 +30,34 @@ import { visibleInterfaceLocale } from '@/lib/locale';
 import { normalizeBehaviorWeights, type BehaviorSignal } from '@/lib/strategy';
 import type { TagSuggestion } from '@/lib/tag-suggestions';
 import {
+  readResourceCollections,
   readResourceRecords,
   resourceFromHarvest,
   resourceUrlKey,
+  type ResourceCollection,
   type ResourceRecord,
 } from '@/lib/resources';
 import type { HarvestItem } from '@/lib/crawler/types';
-import { readFeederEvents, readTagJev, type FeederEvent } from '@/lib/feeder';
+import { matchedHarvestTagIds, readFeederEvents, readTagJev, type FeederEvent } from '@/lib/feeder';
 
 type Page = WorkspacePage;
 const STORAGE = 'feed-gardener-demo-v1';
 const RESOURCES_STORAGE = 'feed-gardener-resources-v1';
+const COLLECTIONS_STORAGE = 'feed-gardener-collections-v1';
 const EVENTS_STORAGE = 'feed-gardener-events-v1';
-const knownSources = ['YouTube', 'TikTok', 'Instagram', 'X', 'arXiv', 'GitHub', 'Hacker News'];
+const knownSources = [
+  'YouTube',
+  'Bilibili',
+  'TikTok',
+  'Instagram',
+  'X',
+  'arXiv',
+  'GitHub',
+  'Hacker News',
+];
+const visibleSources = knownSources.filter(
+  (source) => !['TikTok', 'Instagram', 'X'].includes(source),
+);
 const allTags = domains.flatMap((domain) => domain.tags);
 const readingLanguageOptions: ReadonlyArray<{
   id: Preferences['readingLanguage'];
@@ -60,7 +70,6 @@ const readingLanguageOptions: ReadonlyArray<{
 ];
 // Keep the full set above for a later re-enable, but do not expose Chinese display options yet.
 const visibleReadingLanguageOptions = readingLanguageOptions.filter(({ id }) => id === 'en');
-const validTagIds = new Set(allTags.map((tag) => tag.id));
 const customTagName = (tag: CustomTag, readingLanguage: Preferences['readingLanguage']) => {
   if (readingLanguage === 'en') return tag.labelEn;
   if (readingLanguage === 'zh')
@@ -71,21 +80,14 @@ const customTagName = (tag: CustomTag, readingLanguage: Preferences['readingLang
 };
 
 function englishDefaultPreferences(): Preferences {
-  return { ...structuredClone(defaultPreferences), readingLanguage: 'en' };
-}
-
-function readTagIds(value: unknown): string[] {
-  return Array.isArray(value)
-    ? [
-        ...new Set(
-          value.filter((id): id is string => typeof id === 'string' && validTagIds.has(id)),
-        ),
-      ]
-    : [];
-}
-
-function isOnboardingStep(value: unknown): value is OnboardingStep {
-  return value === 'intro' || value === 'explore' || value === 'exclude';
+  return {
+    ...structuredClone(defaultPreferences),
+    domains: [],
+    tags: [],
+    customTags: [],
+    relatedDomains: [],
+    readingLanguage: 'en',
+  };
 }
 
 function readStoredSlice(key: string, fallback: unknown): unknown {
@@ -111,10 +113,12 @@ function readPreferences(value: unknown): Preferences {
         .filter(
           (value) =>
             typeof value.id === 'string' &&
-            value.id.startsWith('live:github:') &&
+            ((value.source === 'manual' && value.id.startsWith('manual:')) ||
+              (value.id.startsWith('live:github:') &&
+                typeof value.evidenceUrl === 'string' &&
+                value.evidenceUrl.startsWith('https://github.com/'))) &&
             typeof value.label === 'string' &&
-            typeof value.evidenceUrl === 'string' &&
-            value.evidenceUrl.startsWith('https://github.com/'),
+            value.label.trim().length > 0,
         )
         .slice(0, 12)
         .map((value): CustomTag => ({
@@ -130,8 +134,8 @@ function readPreferences(value: unknown): Preferences {
               : String(value.label).slice(0, 80),
           translationStatus:
             value.translationStatus === 'translated' ? 'translated' : 'source_label',
-          source: 'github_live',
-          evidenceUrl: String(value.evidenceUrl),
+          source: value.source === 'manual' ? 'manual' : 'github_live',
+          evidenceUrl: value.source === 'manual' ? '' : String(value.evidenceUrl),
         }))
     : [];
   return {
@@ -223,13 +227,12 @@ function Modal({
 
 export default function Home() {
   const locale = visibleInterfaceLocale;
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep | 'complete' | null>(null);
-  const [onboardingDirection, setOnboardingDirection] = useState<'forward' | 'backward'>('forward');
-  const [onboardingWantedTags, setOnboardingWantedTags] = useState<string[]>([]);
-  const [onboardingBlockedTags, setOnboardingBlockedTags] = useState<string[]>([]);
+  const [customTagInput, setCustomTagInput] = useState('');
+  const [customTagError, setCustomTagError] = useState('');
   const [page, setPage] = useState<Page>('discover');
   const [preferences, setPreferences] = useState<Preferences>(englishDefaultPreferences);
   const [resources, setResources] = useState<ResourceRecord[]>([]);
+  const [collections, setCollections] = useState<ResourceCollection[]>([]);
   const [feederEvents, setFeederEvents] = useState<FeederEvent[]>([]);
   const [draft, setDraft] = useState<Preferences | null>(null);
   const [tagSuggestions, setTagSuggestions] = useState<TagSuggestion[]>([]);
@@ -250,39 +253,65 @@ export default function Home() {
     try {
       const stored = readStoredSlice(STORAGE, null) as Record<string, unknown> | null;
       if (stored && typeof stored === 'object') {
-        if (stored.preferences) setPreferences(readPreferences(stored.preferences));
-        const storedWantedTags = readTagIds(stored.onboardingWantedTags);
-        const storedBlockedTags = readTagIds(stored.onboardingBlockedTags).filter(
-          (id) => !storedWantedTags.includes(id),
-        );
-        setOnboardingWantedTags(storedWantedTags);
-        setOnboardingBlockedTags(storedBlockedTags);
-        setOnboardingStep(
-          stored.onboardingCompleted === false && isOnboardingStep(stored.onboardingStep)
-            ? stored.onboardingStep
-            : 'complete',
-        );
+        const savedPreferences = readPreferences(stored.preferences);
+        if (stored.onboardingCompleted === false) {
+          const pendingTags = Array.isArray(stored.onboardingWantedTags)
+            ? stored.onboardingWantedTags.filter(
+                (id): id is string =>
+                  typeof id === 'string' && allTags.some((tag) => tag.id === id),
+              )
+            : [];
+          const pendingCustom = readPreferences({
+            customTags: stored.onboardingCustomTags,
+          }).customTags;
+          if (pendingTags.length || pendingCustom.length) {
+            savedPreferences.tags = [...new Set([...savedPreferences.tags, ...pendingTags])];
+            savedPreferences.domains = [
+              ...new Set([
+                ...savedPreferences.domains,
+                ...domains
+                  .filter((domain) => domain.tags.some((tag) => pendingTags.includes(tag.id)))
+                  .map((domain) => domain.id),
+              ]),
+            ];
+            savedPreferences.customTags = [
+              ...savedPreferences.customTags,
+              ...pendingCustom.filter(
+                (tag) => !savedPreferences.customTags.some((saved) => saved.id === tag.id),
+              ),
+            ].slice(0, 12);
+          }
+        }
+        setPreferences(savedPreferences);
         if (
           typeof stored.page === 'string' &&
-          ['discover', 'saved', 'library', 'garden', 'connections'].includes(stored.page)
-        )
+          ['discover', 'library', 'saved', 'garden', 'connections'].includes(stored.page)
+        ) {
           setPage(stored.page as Page);
-      } else {
-        setOnboardingStep('intro');
+        }
       }
       const legacy = stored && typeof stored === 'object' ? stored : {};
       const resourceSlice = readStoredSlice(RESOURCES_STORAGE, legacy.resources);
+      const collectionSlice = readStoredSlice(COLLECTIONS_STORAGE, legacy.collections);
       const eventSlice = readStoredSlice(EVENTS_STORAGE, legacy.feederEvents);
+      const savedCollections = readResourceCollections(collectionSlice);
       const savedResources = readResourceRecords(
         Array.isArray(resourceSlice) ? resourceSlice : legacy.resources,
-      );
+      ).map((resource) => ({
+        ...resource,
+        collectionId: savedCollections.some((collection) => collection.id === resource.collectionId)
+          ? resource.collectionId
+          : null,
+      }));
       const savedEvents = readFeederEvents(
         Array.isArray(eventSlice) ? eventSlice : legacy.feederEvents,
       );
       setResources(savedResources);
+      setCollections(savedCollections);
       setFeederEvents(savedEvents);
       try {
         localStorage.setItem(RESOURCES_STORAGE, JSON.stringify(savedResources));
+        localStorage.setItem(COLLECTIONS_STORAGE, JSON.stringify(savedCollections));
         localStorage.setItem(EVENTS_STORAGE, JSON.stringify(savedEvents));
         setSplitStorageReady(true);
       } catch {
@@ -291,7 +320,6 @@ export default function Home() {
         );
       }
     } catch {
-      setOnboardingStep('intro');
       setToast('Local data could not be loaded. Sample preferences are ready instead.');
     }
     const returnUrl = new URL(window.location.href);
@@ -319,10 +347,7 @@ export default function Home() {
           JSON.stringify({
             preferences,
             localePreference: visibleInterfaceLocale,
-            onboardingCompleted: onboardingStep === 'complete',
-            onboardingStep: onboardingStep === 'complete' ? undefined : onboardingStep,
-            onboardingWantedTags,
-            onboardingBlockedTags,
+            onboardingCompleted: true,
             page,
           }),
         );
@@ -335,15 +360,7 @@ export default function Home() {
         );
       }
     }
-  }, [
-    preferences,
-    onboardingStep,
-    onboardingWantedTags,
-    onboardingBlockedTags,
-    page,
-    ready,
-    splitStorageReady,
-  ]);
+  }, [preferences, page, ready, splitStorageReady]);
   useEffect(() => {
     if (!ready || !splitStorageReady) return;
     try {
@@ -352,6 +369,14 @@ export default function Home() {
       setToast('Saved items could not be stored. Export your data before closing this session.');
     }
   }, [resources, ready, splitStorageReady]);
+  useEffect(() => {
+    if (!ready || !splitStorageReady) return;
+    try {
+      localStorage.setItem(COLLECTIONS_STORAGE, JSON.stringify(collections));
+    } catch {
+      setToast('Collections could not be stored. Export your data before closing this session.');
+    }
+  }, [collections, ready, splitStorageReady]);
   useEffect(() => {
     if (!ready || !splitStorageReady) return;
     try {
@@ -457,7 +482,11 @@ export default function Home() {
     setPage(next);
     setMobileNav(false);
   };
-  const editPreferences = () => setDraft(structuredClone(preferences));
+  const editPreferences = () => {
+    setCustomTagInput('');
+    setCustomTagError('');
+    setDraft(structuredClone(preferences));
+  };
   const manageInterests = () => {
     navigate('discover');
     editPreferences();
@@ -470,6 +499,7 @@ export default function Home() {
             schema: 'feed-gardener-demo/1',
             preferences,
             resources,
+            collections,
             feederEvents,
           },
           null,
@@ -486,43 +516,7 @@ export default function Home() {
     URL.revokeObjectURL(url);
     setToast(t('偏好和个人记录已导出', 'Preferences and personal records exported'));
   };
-  const completeOnboarding = () => {
-    const wantedTags = readTagIds(onboardingWantedTags);
-    const blockedTags = readTagIds(onboardingBlockedTags).filter((id) => !wantedTags.includes(id));
-    const selectedDomainIds = domains
-      .filter((domain) => domain.tags.some((tag) => wantedTags.includes(tag.id)))
-      .map((domain) => domain.id);
-    setPreferences((current) => ({
-      ...englishDefaultPreferences(),
-      domains: selectedDomainIds,
-      tags: wantedTags,
-      relatedDomains: [],
-      exploration: 0,
-      onlySelectedTags: wantedTags.length > 0 && blockedTags.length === 0,
-      blockedTags,
-      version: current.version + 1,
-    }));
-    setOnboardingWantedTags(wantedTags);
-    setOnboardingBlockedTags(blockedTags);
-    setOnboardingStep('complete');
-    setPage('discover');
-    window.scrollTo({ top: 0, behavior: 'instant' });
-    setToast(
-      wantedTags.length
-        ? 'Your feed is ready. Your selected tags are now in sync.'
-        : 'Explore public sources now. Add interests whenever you are ready for a personal feed.',
-    );
-  };
-
-  const changeOnboardingStep = (nextStep: OnboardingStep) => {
-    const steps: OnboardingStep[] = ['intro', 'explore', 'exclude'];
-    const currentIndex =
-      onboardingStep === null || onboardingStep === 'complete' ? 0 : steps.indexOf(onboardingStep);
-    setOnboardingDirection(steps.indexOf(nextStep) < currentIndex ? 'backward' : 'forward');
-    setOnboardingStep(nextStep);
-  };
-
-  if (!ready || onboardingStep === null) {
+  if (!ready) {
     return (
       <div className="boot-screen" aria-label="Feed Gardener">
         <span className="brand-mark">
@@ -535,63 +529,23 @@ export default function Home() {
     );
   }
 
-  if (onboardingStep !== 'complete') {
-    return (
-      <Onboarding
-        key={onboardingStep}
-        step={onboardingStep}
-        transitionDirection={onboardingDirection}
-        wantedTags={onboardingWantedTags}
-        blockedTags={onboardingBlockedTags}
-        onStepChange={changeOnboardingStep}
-        onWantedTagsChange={(tags) => {
-          setOnboardingWantedTags(tags);
-          setOnboardingBlockedTags((blocked) => blocked.filter((id) => !tags.includes(id)));
-        }}
-        onBlockedTagsChange={setOnboardingBlockedTags}
-        onComplete={completeOnboarding}
-      />
-    );
-  }
-
   return (
     <div className="app-shell">
       <WorkspaceSidebar
         page={page}
         t={t}
         mobileOpen={mobileNav}
-        resourceCount={resources.length}
-        savedCount={resources.length}
         onNavigate={navigate}
         onCloseMobile={() => setMobileNav(false)}
       />
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="mobile-menu icon-button"
-              onClick={() => setMobileNav(true)}
-              aria-label={t('打开导航', 'Open navigation')}
-            >
-              <Menu size={21} />
-            </button>
-            <span className="breadcrumb-root">{t('我的工作台', 'My workspace')}</span>
-            <ChevronRight size={13} />
-            <span>
-              {page === 'connections'
-                ? t('连接与隐私', 'Connections & privacy')
-                : t(
-                    WORKSPACE_TABS.find((item) => item.id === page)?.zh || '',
-                    WORKSPACE_TABS.find((item) => item.id === page)?.en || '',
-                  )}
-            </span>
-          </div>
-          {page === 'connections' && (
-            <div className="topbar-actions">
-              <YouTubeConnection compact />
-            </div>
-          )}
-        </header>
+        <button
+          className="mobile-menu icon-button"
+          onClick={() => setMobileNav(true)}
+          aria-label={t('打开导航', 'Open navigation')}
+        >
+          <Menu size={21} />
+        </button>
         {offline && (
           <div className="offline-banner">
             <Radio size={16} />
@@ -601,7 +555,7 @@ export default function Home() {
             )}
           </div>
         )}
-        {page === 'discover' || page === 'saved' || page === 'garden' ? (
+        {page === 'discover' || page === 'garden' ? (
           <main className="discover-page">
             <FeederWorkspace
               page={page}
@@ -610,21 +564,11 @@ export default function Home() {
               resources={resources}
               events={feederEvents}
               onSaveResource={saveResource}
-              onRemoveResource={(id) =>
-                setResources((current) => current.filter((item) => item.id !== id))
-              }
               onRecordEvent={(event) =>
                 setFeederEvents((current) => [...current, event].slice(-500))
               }
               onUndoEvent={(id) =>
                 setFeederEvents((current) => current.filter((event) => event.id !== id))
-              }
-              onTagJevChange={(id, value) =>
-                setPreferences((current) => ({
-                  ...current,
-                  tagJev: { ...current.tagJev, [id]: value },
-                  version: current.version + 1,
-                }))
               }
               onTargetJevAverageChange={(value) =>
                 setPreferences((current) => ({
@@ -651,25 +595,11 @@ export default function Home() {
             <div className="connection-list">
               {[
                 {
-                  name: 'TikTok',
-                  mark: 'TT',
-                  statusZh: '受限可用',
-                  statusEn: 'Limited',
+                  name: 'Bilibili',
+                  mark: 'B站',
+                  statusZh: '公开源',
+                  statusEn: 'Public source',
                   live: true,
-                },
-                {
-                  name: 'X',
-                  mark: 'X',
-                  statusZh: '受限可用',
-                  statusEn: 'Limited',
-                  live: true,
-                },
-                {
-                  name: 'Instagram',
-                  mark: 'IG',
-                  statusZh: '需配置',
-                  statusEn: 'Setup needed',
-                  live: false,
                 },
                 {
                   name: 'arXiv',
@@ -729,11 +659,31 @@ export default function Home() {
               </section>
             </div>
           </main>
-        ) : page === 'library' ? (
+        ) : page === 'library' || page === 'saved' ? (
           <ResourceLibrary
+            mode={page === 'saved' ? 'saved' : 'library'}
             locale={locale}
             resources={resources}
+            collections={collections}
             t={t}
+            onCreateCollection={(collection) =>
+              setCollections((previous) => [...previous, collection])
+            }
+            onRenameCollection={(id, name) =>
+              setCollections((previous) =>
+                previous.map((collection) =>
+                  collection.id === id ? { ...collection, name } : collection,
+                ),
+              )
+            }
+            onDeleteCollection={(id) => {
+              setCollections((previous) => previous.filter((collection) => collection.id !== id));
+              setResources((previous) =>
+                previous.map((resource) =>
+                  resource.collectionId === id ? { ...resource, collectionId: null } : resource,
+                ),
+              );
+            }}
             onAdd={(record) => {
               setResources((previous) => [record, ...previous]);
               setToast(t('已收藏到资源库', 'Saved to the resource library'));
@@ -746,8 +696,30 @@ export default function Home() {
               )
             }
             onRemove={(id) => {
+              const resource = resources.find((item) => item.id === id);
+              const key = resource && resourceUrlKey(resource.url);
               setResources((previous) => previous.filter((resource) => resource.id !== id));
+              if (key) {
+                setFeederEvents((previous) =>
+                  previous.filter((event) => event.itemKey !== key || event.signal !== 'save'),
+                );
+              }
               setToast(t('已移出资源库', 'Removed from the resource library'));
+            }}
+            onOpen={(resource) => {
+              const key = resourceUrlKey(resource.url);
+              if (!key) return;
+              const event: FeederEvent = {
+                id: crypto.randomUUID(),
+                actor: 'user',
+                itemKey: key,
+                signal: 'open',
+                tagIds: matchedHarvestTagIds({ tags: resource.tags }),
+                source: resource.source,
+                author: resource.author,
+                at: new Date().toISOString(),
+              };
+              setFeederEvents((previous) => [...previous, event].slice(-500));
             }}
             onDiscover={() => navigate('discover')}
           />
@@ -880,12 +852,74 @@ export default function Home() {
                   >
                     <Check size={13} />
                     {customTagName(tag, draft.readingLanguage)}
-                    <small>LIVE</small>
+                    <small>{tag.source === 'manual' ? 'YOUR TAG' : 'LIVE'}</small>
                     <X size={12} />
                   </button>
                 ))}
               </div>
             )}
+            <form
+              className="console-custom-tag-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const label = customTagInput.trim().replace(/\s+/g, ' ');
+                const normalized = label.toLocaleLowerCase();
+                if (!label || label.length > 80) {
+                  setCustomTagError('Enter a tag with 1–80 characters.');
+                  return;
+                }
+                if (
+                  allTags.some(
+                    (tag) =>
+                      tag.labelEn.toLocaleLowerCase() === normalized ||
+                      tag.label.toLocaleLowerCase() === normalized,
+                  ) ||
+                  draft.customTags.some((tag) => tag.labelEn.toLocaleLowerCase() === normalized)
+                ) {
+                  setCustomTagError('That tag already exists. Select it above.');
+                  return;
+                }
+                if (draft.customTags.length >= 12) {
+                  setCustomTagError('You can add up to 12 custom tags.');
+                  return;
+                }
+                setDraft({
+                  ...draft,
+                  customTags: [
+                    ...draft.customTags,
+                    {
+                      id: `manual:${encodeURIComponent(normalized)}`,
+                      label,
+                      labelEn: label,
+                      labelZh: label,
+                      translationStatus: 'source_label',
+                      source: 'manual',
+                      evidenceUrl: '',
+                    },
+                  ],
+                });
+                setCustomTagInput('');
+                setCustomTagError('');
+              }}
+            >
+              <label htmlFor="console-custom-tag">Can’t find a tag? Add your own</label>
+              <div>
+                <input
+                  id="console-custom-tag"
+                  value={customTagInput}
+                  maxLength={80}
+                  onChange={(event) => {
+                    setCustomTagInput(event.target.value);
+                    setCustomTagError('');
+                  }}
+                  placeholder="e.g. Indie game design"
+                />
+                <button type="submit" className="secondary-button">
+                  <Plus size={15} /> Add tag
+                </button>
+              </div>
+              {customTagError && <p role="alert">{customTagError}</p>}
+            </form>
             <div className="preference-tags suggestion-tags" aria-live="polite">
               {tagSuggestions.map((suggestion) => {
                 const selected = suggestion.knownTagId
@@ -1000,12 +1034,15 @@ export default function Home() {
               <summary>
                 <ShieldCheck size={16} />
                 {t('不想看的内容与来源', 'Topics and sources to exclude')}
-                <span>{draft.blockedTags.length + draft.blockedSources.length}</span>
+                <span>
+                  {draft.blockedTags.length +
+                    draft.blockedSources.filter((source) => visibleSources.includes(source)).length}
+                </span>
                 <ChevronDown size={15} />
               </summary>
               <label>{t('屏蔽整个来源', 'Block a platform')}</label>
               <div className="preference-tags">
-                {knownSources.map((s) => (
+                {visibleSources.map((s) => (
                   <button
                     key={s}
                     aria-pressed={draft.blockedSources.includes(s)}
@@ -1069,7 +1106,7 @@ export default function Home() {
             <span>{t('保存在当前浏览器', 'Saved in this browser')}</span>
             <button
               className="primary-button"
-              disabled={draft.domains.length === 0}
+              disabled={draft.domains.length === 0 && draft.customTags.length === 0}
               onClick={() => {
                 setPreferences({
                   ...draft,
@@ -1119,11 +1156,8 @@ export default function Home() {
                   return;
                 }
                 setPreferences(englishDefaultPreferences());
-                setOnboardingWantedTags([]);
-                setOnboardingBlockedTags([]);
-                setOnboardingDirection('forward');
-                setOnboardingStep('intro');
                 setResources([]);
+                setCollections([]);
                 setFeederEvents([]);
                 setResetConfirm(false);
                 setToast(t('演示空间已重置', 'Your demo space has been reset'));

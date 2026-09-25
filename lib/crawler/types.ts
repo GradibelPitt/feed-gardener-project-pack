@@ -1,10 +1,11 @@
 export type FeedSection = 'social' | 'academic' | 'opensource';
 
 export type LiveSource =
-  'YouTube' | 'TikTok' | 'Instagram' | 'X' | 'arXiv' | 'GitHub' | 'Hacker News';
+  'YouTube' | 'Bilibili' | 'TikTok' | 'Instagram' | 'X' | 'arXiv' | 'GitHub' | 'Hacker News';
 
 export const LIVE_SOURCES: readonly LiveSource[] = [
   'YouTube',
+  'Bilibili',
   'TikTok',
   'Instagram',
   'X',
@@ -46,7 +47,7 @@ export type HarvestItem = {
     comments?: number;
   };
   provenance: {
-    mode: 'official_api' | 'public_feed' | 'public_oembed';
+    mode: 'official_api' | 'public_api' | 'public_feed' | 'public_oembed';
     sourceUrl: string;
     fetchedAt: string;
   };

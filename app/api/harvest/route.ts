@@ -12,6 +12,10 @@ export async function GET(request: Request) {
     .getAll('tag')
     .filter((tag) => tag.length <= 80)
     .slice(0, 2);
+  const localizedTags = url.searchParams
+    .getAll('tagZh')
+    .filter((tag) => tag.length <= 80)
+    .slice(0, 2);
   const requestedSource = url.searchParams.get('source');
   if (requestedSource !== null && !LIVE_SOURCES.includes(requestedSource as LiveSource)) {
     return apiError(400, 'INVALID_SOURCE', 'Unknown public source.');
@@ -20,6 +24,7 @@ export async function GET(request: Request) {
     forceRefresh,
     tags,
     requestedSource === null ? undefined : (requestedSource as LiveSource),
+    localizedTags,
   );
   return apiSuccess(payload, {
     headers: {

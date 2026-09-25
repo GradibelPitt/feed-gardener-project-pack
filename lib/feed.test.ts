@@ -8,6 +8,7 @@ import {
   formatDuration,
   rankFeed,
   matchesHarvestPreferences,
+  searchInterests,
 } from './feed.ts';
 import type { Preferences } from './feed.ts';
 
@@ -37,6 +38,35 @@ test('interest navigation resolves to unique persisted domain and tag IDs', () =
       ?.tags.find((tag) => tag.id === 'agents')?.labelEn,
     'Agents',
   );
+});
+
+test('domain-only interests drive search and matching until specific tags are chosen', () => {
+  const domainOnly = profile({
+    domains: ['backend-systems'],
+    tags: [],
+    customTags: [],
+    onlySelectedTags: true,
+    excludeUnselectedTags: true,
+  });
+  assert.deepEqual(searchInterests(domainOnly), [
+    { labelEn: 'Backend & distributed systems', labelZh: '后端与分布式系统' },
+  ]);
+  assert.equal(
+    matchesHarvestPreferences(
+      { tags: ['Distributed systems'], source: 'Bilibili', author: 'creator' },
+      domainOnly,
+    ),
+    true,
+  );
+  assert.equal(
+    matchesHarvestPreferences(
+      { tags: ['Game reviews'], source: 'Bilibili', author: 'creator' },
+      domainOnly,
+    ),
+    false,
+  );
+  const specific = { ...domainOnly, tags: ['databases'] };
+  assert.deepEqual(searchInterests(specific), [{ labelEn: 'Databases', labelZh: '数据库' }]);
 });
 
 test('nontechnical interests survive preference serialization without selecting technical fixtures', () => {

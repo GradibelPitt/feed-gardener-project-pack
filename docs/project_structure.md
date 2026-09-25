@@ -60,6 +60,7 @@ feed_gardener_project_pack/
     │   ├── main.ts
     │   └── state.ts
     ├── components/
+    │   ├── BilibiliVideo.tsx
     │   ├── FeederWorkspace.module.css
     │   ├── FeederWorkspace.tsx
     │   ├── Onboarding.tsx
@@ -87,7 +88,10 @@ feed_gardener_project_pack/
     │   │       ├── 11-after-harvest-items.jpg
     │   │       ├── 12-why-this-item.jpg
     │   │       ├── 13-source-overview.jpg
-    │   │       └── 14-arxiv-source.jpg
+    │   │       ├── 14-arxiv-source.jpg
+    │   │       ├── 15-youtube-before-fetch.jpg
+    │   │       ├── 16-youtube-after-fetch.jpg
+    │   │       └── 17-youtube-live-source.jpg
     │   ├── feeder_product_goal.md
     │   ├── interface_contract.md
     │   ├── jev_crawler_merge_review.md
@@ -96,6 +100,7 @@ feed_gardener_project_pack/
     ├── lib/
     │   ├── crawler/
     │   │   ├── arxiv.ts
+    │   │   ├── bilibili.ts
     │   │   ├── core.ts
     │   │   ├── github.ts
     │   │   ├── hackernews.ts
@@ -144,11 +149,14 @@ feed_gardener_project_pack/
     │       ├── libre-caslon-4.ttf
     │       └── librecaslondisplay-OFL.txt
     ├── scripts/
-    │   └── generate-project-structure.mjs
+    │   ├── generate-project-structure.mjs
+    │   └── launch.mjs
     ├── .env.example
+    ├── .gitattributes
     ├── .gitignore
     ├── .prettierignore
     ├── .prettierrc.json
+    ├── Launch.bat
     ├── Launch.command
     ├── next.config.ts
     ├── package.json

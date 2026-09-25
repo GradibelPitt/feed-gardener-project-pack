@@ -13,6 +13,24 @@ export const RESOURCE_TYPES = [
 ] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
+export type ResourceCollection = {
+  id: string;
+  name: string;
+  createdAt: string;
+};
+
+export function nextDefaultCollectionName(collections: ResourceCollection[]): string {
+  const names = new Set(collections.map((collection) => collection.name.toLowerCase()));
+  const highestNumber = collections.reduce((highest, collection) => {
+    const match = /^default folder (\d+)$/i.exec(collection.name);
+    const number = match ? Number(match[1]) : 0;
+    return Number.isSafeInteger(number) ? Math.max(highest, number) : highest;
+  }, 0);
+  let number = highestNumber + 1;
+  while (names.has(`default folder ${number}`)) number += 1;
+  return `default folder ${number}`;
+}
+
 export type ResourceRecord = {
   id: string;
   title: string;
@@ -27,7 +45,36 @@ export type ResourceRecord = {
   note: string;
   knowledgeState: KnowledgeState;
   resourceType: ResourceType;
+  collectionId: string | null;
+  imageUrl?: string;
+  embedUrl?: string;
 };
+
+export function readResourceCollections(value: unknown): ResourceCollection[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .flatMap((item) => {
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      const name = typeof item.name === 'string' ? item.name.trim().slice(0, 60) : '';
+      if (!id || id.length > 100 || !name || ids.has(id) || names.has(name.toLowerCase())) {
+        return [];
+      }
+      ids.add(id);
+      names.add(name.toLowerCase());
+      return [
+        {
+          id,
+          name,
+          createdAt:
+            typeof item.createdAt === 'string' ? item.createdAt : new Date(0).toISOString(),
+        },
+      ];
+    })
+    .slice(0, 50);
+}
 
 export function parseResourceUrl(value: string): URL | null {
   const input = value.trim();
@@ -57,6 +104,40 @@ export function resourceUrlKey(url: string): string {
   parsed.hash = '';
   parsed.hostname = parsed.hostname.replace(/^www\./i, '');
   return parsed.href.replace(/\/$/, '');
+}
+
+function videoDetails(
+  url: string,
+  proposedEmbed?: string,
+): Pick<ResourceRecord, 'imageUrl' | 'embedUrl'> {
+  const parsed = parseResourceUrl(url);
+  if (!parsed) return {};
+  const host = parsed.hostname.replace(/^www\./i, '');
+  const bvid =
+    host === 'bilibili.com'
+      ? parsed.pathname.match(/^\/video\/(BV[0-9A-Za-z]{10})\/?$/)?.[1]
+      : null;
+  if (bvid) return { embedUrl: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=0` };
+  const videoId =
+    host === 'youtube.com' || host === 'm.youtube.com'
+      ? parsed.searchParams.get('v')
+      : host === 'youtu.be'
+        ? parsed.pathname.slice(1)
+        : null;
+  if (videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    const expectedEmbed = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=0`;
+    return {
+      imageUrl: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+      ...(proposedEmbed === expectedEmbed ? { embedUrl: expectedEmbed } : {}),
+    };
+  }
+  return {};
+}
+
+function safeImageUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 2_048) return undefined;
+  const parsed = parseResourceUrl(value);
+  return parsed?.protocol === 'https:' ? parsed.href : undefined;
 }
 
 export function inferResourceType(url: string, source = ''): ResourceType {
@@ -95,6 +176,7 @@ export function resourceFromLink(
   const url = parseResourceUrl(rawUrl);
   if (!url) return null;
   const website = resourceWebsite(url.href);
+  const video = videoDetails(url.href);
   return {
     id: `link-${crypto.randomUUID()}`,
     title: title.trim().slice(0, 500) || website,
@@ -109,10 +191,13 @@ export function resourceFromLink(
     note: '',
     knowledgeState: 'inbox',
     resourceType: resourceType ?? inferResourceType(url.href),
+    collectionId: null,
+    ...video,
   };
 }
 
 export function resourceFromHarvest(item: HarvestItem, now = new Date()): ResourceRecord {
+  const video = videoDetails(item.url, item.embedUrl);
   return {
     id: item.id,
     title: item.title,
@@ -127,6 +212,9 @@ export function resourceFromHarvest(item: HarvestItem, now = new Date()): Resour
     note: '',
     knowledgeState: 'inbox',
     resourceType: inferResourceType(item.url, item.source),
+    collectionId: null,
+    ...video,
+    imageUrl: safeImageUrl(item.imageUrl) ?? video.imageUrl,
   };
 }
 
@@ -165,5 +253,14 @@ export function readResourceRecords(value: unknown): ResourceRecord[] {
       resourceType: RESOURCE_TYPES.includes(item.resourceType as ResourceType)
         ? (item.resourceType as ResourceType)
         : inferResourceType(String(item.url), String(item.source ?? '')),
+      collectionId:
+        typeof item.collectionId === 'string' && item.collectionId.length <= 100
+          ? item.collectionId
+          : null,
+      ...videoDetails(
+        String(item.url),
+        typeof item.embedUrl === 'string' ? item.embedUrl : undefined,
+      ),
+      imageUrl: safeImageUrl(item.imageUrl) ?? videoDetails(String(item.url)).imageUrl,
     }));
 }

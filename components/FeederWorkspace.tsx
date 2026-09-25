@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowUpRight, Bookmark, Compass, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowUpRight, Bookmark, Compass, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { HarvestItem, HarvestPayload } from '@/lib/crawler/types';
 import type { Locale } from '@/lib/locale';
 import { readApiData } from '@/lib/api-contract';
-import { domains, type Preferences } from '@/lib/feed';
+import { bilingualInterestLabel, domains, searchInterests, type Preferences } from '@/lib/feed';
 import {
-  effectiveTagJev,
   matchedHarvestTagIds,
   rankHarvestCandidates,
   type FeederEvent,
@@ -16,11 +15,13 @@ import {
 import { resourceUrlKey, type ResourceRecord } from '@/lib/resources';
 import { mergeHarvestPayload } from '@/lib/crawler/merge';
 import { simulateFeed, type JevRating } from '@/lib/feed-simulator';
+import type { TagSuggestion } from '@/lib/tag-suggestions';
 import SourceBoards, { readSocialImports } from './SourceBoards';
 import YouTubeVideo from './YouTubeVideo';
+import BilibiliVideo from './BilibiliVideo';
 import styles from './FeederWorkspace.module.css';
 
-type WorkspacePage = 'discover' | 'garden' | 'saved';
+type WorkspacePage = 'discover' | 'garden';
 type Props = {
   page: WorkspacePage;
   locale: Locale;
@@ -28,10 +29,8 @@ type Props = {
   resources: ResourceRecord[];
   events: FeederEvent[];
   onSaveResource: (item: HarvestItem) => void;
-  onRemoveResource: (id: string) => void;
   onRecordEvent: (event: FeederEvent) => void;
   onUndoEvent: (id: string) => void;
-  onTagJevChange: (id: string, value: number) => void;
   onTargetJevAverageChange: (value: number) => void;
   onOnlySelectedTagsChange: (value: boolean) => void;
   onInterestRuleChange: (
@@ -44,6 +43,7 @@ type Props = {
 const catalog = domains.flatMap((domain) =>
   domain.tags.map((tag) => ({ ...tag, domainId: domain.id })),
 );
+const broadGithubTopics = ['ai', 'c', 'java', 'javascript', 'python', 'rust', 'typescript'];
 const t = (zh: string, en: string, locale: Locale) => (locale === 'zh' ? zh : en);
 
 function HelpHint({ title, children }: { title: string; children: ReactNode }) {
@@ -72,10 +72,8 @@ export default function FeederWorkspace({
   resources,
   events,
   onSaveResource,
-  onRemoveResource,
   onRecordEvent,
   onUndoEvent,
-  onTagJevChange,
   onTargetJevAverageChange,
   onOnlySelectedTagsChange,
   onInterestRuleChange,
@@ -93,8 +91,82 @@ export default function FeederWorkspace({
   const [scoring, setScoring] = useState(false);
   const [scoringError, setScoringError] = useState('');
   const [scoringDone, setScoringDone] = useState(false);
+  const [nearbyTopics, setNearbyTopics] = useState<TagSuggestion[]>([]);
+  const [nearbyStatus, setNearbyStatus] = useState<
+    'idle' | 'loading' | 'live' | 'curated' | 'unavailable'
+  >('idle');
+  const [nearbyUpdatedAt, setNearbyUpdatedAt] = useState<string | null>(null);
+  const [nearbyRefresh, setNearbyRefresh] = useState(0);
   const ratingsRef = useRef(new Map<string, JevRating>());
   const ratingContextRef = useRef('');
+  const interests = searchInterests(preferences);
+  const nearbyQuery = JSON.stringify({
+    domainIds: preferences.domains,
+    tagIds: preferences.tags,
+    customTerms: preferences.customTags.map((tag) => tag.labelEn),
+    excludeTerms: [
+      ...preferences.tags,
+      ...preferences.blockedTags,
+      ...catalog
+        .filter((tag) => preferences.blockedTags.includes(tag.id))
+        .flatMap((tag) => [tag.labelEn, tag.label]),
+      ...broadGithubTopics,
+    ],
+    readingLanguage: preferences.readingLanguage,
+    fresh: true,
+  });
+
+  useEffect(() => {
+    if (page !== 'garden') return;
+    const query = JSON.parse(nearbyQuery) as {
+      domainIds: string[];
+      tagIds: string[];
+      customTerms: string[];
+    };
+    if (!query.domainIds.length && !query.tagIds.length && !query.customTerms.length) {
+      setNearbyTopics([]);
+      setNearbyUpdatedAt(null);
+      setNearbyStatus('idle');
+      return;
+    }
+    const controller = new AbortController();
+    setNearbyTopics([]);
+    setNearbyUpdatedAt(null);
+    setNearbyStatus('loading');
+    async function loadNearbyTopics() {
+      try {
+        const response = await fetch('/api/tags/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: nearbyQuery,
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        const result = await readApiData<{
+          suggestions: TagSuggestion[];
+          liveStatus: 'live' | 'degraded' | 'idle';
+          retrievedAt: string | null;
+        }>(response);
+        if (controller.signal.aborted) return;
+        setNearbyTopics(result.suggestions);
+        setNearbyUpdatedAt(result.liveStatus === 'live' ? result.retrievedAt : null);
+        setNearbyStatus(
+          result.suggestions.length
+            ? result.suggestions.some((suggestion) => suggestion.origin === 'live')
+              ? 'live'
+              : 'curated'
+            : 'unavailable',
+        );
+      } catch {
+        if (controller.signal.aborted) return;
+        setNearbyTopics([]);
+        setNearbyUpdatedAt(null);
+        setNearbyStatus('unavailable');
+      }
+    }
+    void loadNearbyTopics();
+    return () => controller.abort();
+  }, [page, nearbyQuery, nearbyRefresh]);
 
   async function refresh(force = false) {
     setLoading(true);
@@ -102,10 +174,10 @@ export default function FeederWorkspace({
     try {
       const params = new URLSearchParams();
       if (force) params.set('refresh', 'true');
-      catalog
-        .filter((tag) => preferences.tags.includes(tag.id))
-        .slice(0, 2)
-        .forEach((tag) => params.append('tag', tag.labelEn));
+      interests.slice(0, 2).forEach((interest) => {
+        params.append('tag', interest.labelEn);
+        params.append('tagZh', interest.labelZh);
+      });
       const response = await fetch(`/api/harvest?${params}`, {
         cache: 'no-store',
       });
@@ -152,7 +224,7 @@ export default function FeederWorkspace({
           ...(payload?.sections.social ?? []).filter((item) => item.source !== 'YouTube'),
           ...(payload?.sections.academic ?? []),
           ...(payload?.sections.opensource ?? []),
-          ...socialImports,
+          ...socialImports.filter((item) => !['TikTok', 'Instagram', 'X'].includes(item.source)),
         ],
         candidatePreferences,
         events,
@@ -164,17 +236,16 @@ export default function FeederWorkspace({
     (payload?.sections.social ?? []).filter((item) => item.source !== 'YouTube').length +
     (payload?.sections.academic ?? []).length +
     (payload?.sections.opensource ?? []).length +
-    socialImports.length;
+    socialImports.filter((item) => !['TikTok', 'Instagram', 'X'].includes(item.source)).length;
   const targetAverage = preferences.targetJevAverage ?? 8;
   const targetAverageRef = useRef(targetAverage);
   targetAverageRef.current = targetAverage;
   const goalTags = useMemo(
     () =>
-      [
-        ...catalog.filter((tag) => preferences.tags.includes(tag.id)).map((tag) => tag.labelEn),
-        ...preferences.customTags.map((tag) => tag.labelEn),
-      ].slice(0, 12),
-    [preferences.tags, preferences.customTags],
+      searchInterests(preferences)
+        .map((interest) => bilingualInterestLabel(interest.labelEn, interest.labelZh))
+        .slice(0, 12),
+    [preferences],
   );
   const goalKey = goalTags.join('\u0000');
   const ratingContext = `${goalKey}\u0001${candidates.map((candidate) => `${candidate.key}\u0000${candidate.item.title}`).join('\u0001')}`;
@@ -320,14 +391,6 @@ export default function FeederWorkspace({
     ? Math.round((simulation.ratedCount / candidates.length) * 100)
     : 0;
   const selectedTags = catalog.filter((tag) => preferences.tags.includes(tag.id));
-  const relatedTags = catalog
-    .filter(
-      (tag) =>
-        !preferences.tags.includes(tag.id) &&
-        selectedTags.some((selected) => selected.domainId === tag.domainId),
-    )
-    .slice(0, 12);
-
   function record(item: HarvestItem, signal: FeederSignal): FeederEvent {
     const event: FeederEvent = {
       id: crypto.randomUUID(),
@@ -353,70 +416,50 @@ export default function FeederWorkspace({
     return (
       <div className={styles.workspace}>
         <header className={styles.header}>
-          <span className={styles.eyebrow}>YOUR INTEREST MODEL</span>
+          <span className={styles.eyebrow}>YOUR INTERESTS</span>
           <h1>My garden</h1>
-          <p>
-            These are Feeder’s own topic weights. They shape this feed, not any source platform.
-          </p>
+          <p>Choose your topics and adjust Relevance in Discover to shape your feed.</p>
           <button className={styles.secondary} onClick={onEditInterests}>
             <SlidersHorizontal size={16} /> Manage interests in Discover
           </button>
         </header>
-        <section className={styles.panel}>
-          <div className={styles.sectionHeading}>
-            <div>
-              <div className={styles.headingWithHelp}>
-                <h2>Tag JEV</h2>
-                <HelpHint title="Tag JEV">
-                  Your own topic interest weights start from the topics you chose. Feeder actions
-                  make small, time-decaying changes; you can adjust the starting weight here. These
-                  weights shape Feeder’s ranking, not a source platform’s recommendations.
-                </HelpHint>
-              </div>
-            </div>
-            <span>{selectedTags.length} selected</span>
-          </div>
-          {selectedTags.length ? (
-            <div className={styles.weightList}>
-              {selectedTags.map((tag) => {
-                const weight = effectiveTagJev(tag.id, preferences, events);
-                return (
-                  <label className={styles.weightRow} key={tag.id}>
-                    <span>{tag.labelEn}</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={preferences.tagJev?.[tag.id] ?? 0.7}
-                      onChange={(event) => onTagJevChange(tag.id, Number(event.target.value))}
-                      aria-label={`${tag.labelEn} interest weight`}
-                    />
-                    <strong>{weight.toFixed(2)}</strong>
-                  </label>
-                );
-              })}
-            </div>
-          ) : (
-            <p className={styles.empty}>Choose some topics to start shaping your feed.</p>
-          )}
-        </section>
         <div className={styles.twoColumns}>
           <section className={styles.panel}>
             <div className={styles.headingWithHelp}>
               <h2>Nearby topics</h2>
               <HelpHint title="Nearby topics">
-                These topics share a catalog group with your selections. Feeder may include a small
-                number as exploration when relevant public items exist. Your excluded topics,
-                sources, and creators always stay excluded.
+                Generated from current public information related to your interests. Explicit topic
+                exclusions still apply to your feed.
               </HelpHint>
+              <button
+                type="button"
+                className={styles.nearbyRefresh}
+                onClick={() => setNearbyRefresh((value) => value + 1)}
+                disabled={nearbyStatus === 'loading' || nearbyStatus === 'idle'}
+                aria-label="Refresh nearby topics"
+              >
+                <RotateCcw size={15} /> Refresh
+              </button>
             </div>
-            <div className={styles.chips}>
-              {relatedTags.map((tag) => (
-                <span key={tag.id}>{tag.labelEn}</span>
+            <div className={styles.nearbyChips} aria-live="polite">
+              {nearbyTopics.map((topic) => (
+                <span key={topic.id}>{topic.displayLabel}</span>
               ))}
-              {!relatedTags.length && <span>No nearby topics yet</span>}
             </div>
+            {nearbyStatus === 'idle' && <p>Choose an interest to find nearby topics online.</p>}
+            {nearbyStatus === 'loading' && <p>Finding nearby topics…</p>}
+            {nearbyStatus === 'curated' && <p>Related topics from the built-in catalog.</p>}
+            {nearbyStatus === 'unavailable' && (
+              <p>Live nearby topics are unavailable. Try refreshing.</p>
+            )}
+            {nearbyStatus === 'live' && !nearbyTopics.length && (
+              <p>No nearby topics found in the current public results.</p>
+            )}
+            {nearbyUpdatedAt && nearbyTopics.length > 0 && (
+              <p className={styles.nearbyChecked}>
+                Updated {new Date(nearbyUpdatedAt).toLocaleString()}
+              </p>
+            )}
           </section>
           <section className={styles.panel}>
             <div className={styles.headingWithHelp}>
@@ -462,79 +505,11 @@ export default function FeederWorkspace({
     );
   }
 
-  if (page === 'saved') {
-    return (
-      <div className={styles.workspace}>
-        <header className={styles.header}>
-          <span className={styles.eyebrow}>YOUR COLLECTION</span>
-          <h1>Saved for later</h1>
-          <p>Your saved links stay here even when your interests change.</p>
-        </header>
-        {resources.length ? (
-          <div className={styles.cards}>
-            {resources.map((resource) => (
-              <article className={styles.card} key={resource.id}>
-                <div className={styles.cardMeta}>
-                  {resource.source} · {resource.resourceType}
-                </div>
-                <h2>{resource.title}</h2>
-                {resource.summary && <p>{resource.summary}</p>}
-                <div className={styles.actions}>
-                  <a
-                    href={resource.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => {
-                      const key = resourceUrlKey(resource.url);
-                      if (!key) return;
-                      onRecordEvent({
-                        id: crypto.randomUUID(),
-                        actor: 'user',
-                        itemKey: key,
-                        signal: 'open',
-                        tagIds: matchedHarvestTagIds({ tags: resource.tags }),
-                        source: resource.source,
-                        author: resource.author,
-                        at: new Date().toISOString(),
-                      });
-                    }}
-                  >
-                    Open source <ArrowUpRight size={15} />
-                  </a>
-                  <button
-                    onClick={() => {
-                      onRemoveResource(resource.id);
-                      const key = resourceUrlKey(resource.url);
-                      events
-                        .filter((event) => event.itemKey === key && event.signal === 'save')
-                        .forEach((event) => onUndoEvent(event.id));
-                    }}
-                  >
-                    Remove from saved <X size={15} />
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className={styles.empty}>
-            Nothing saved yet. Discover a few public-source items or paste a link in Resource
-            library.
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className={styles.workspace}>
       <header className={styles.header}>
         <span className={styles.eyebrow}>YOUR OWN DISCOVERY LAYER</span>
         <h1>Discover</h1>
-        <p>
-          A feed shaped by your topics, using public-source candidates. Source platforms are not
-          being trained.
-        </p>
         <div className={styles.toolbar}>
           <div className={styles.tabs} role="tablist" aria-label="Discover view">
             <button aria-selected={view === 'feed'} role="tab" onClick={() => setView('feed')}>
@@ -593,9 +568,11 @@ export default function FeederWorkspace({
             {preferences.customTags.map((tag) => (
               <span key={tag.id}>{tag.labelEn}</span>
             ))}
-            {!selectedTags.length && !preferences.customTags.length && (
-              <span>No topics selected</span>
-            )}
+            {!selectedTags.length &&
+              !preferences.customTags.length &&
+              preferences.domains.length > 0 && (
+                <span>Using selected areas until you add specific tags</span>
+              )}
           </div>
           <fieldset className={styles.matchRules}>
             <legend>Content matching</legend>
@@ -638,10 +615,8 @@ export default function FeederWorkspace({
       {view === 'sources' ? (
         <SourceBoards
           locale={locale}
-          interestLabels={[
-            ...selectedTags.map((tag) => tag.labelEn),
-            ...preferences.customTags.map((tag) => tag.labelEn),
-          ]}
+          interestLabels={interests.map((interest) => interest.labelEn)}
+          localizedInterestLabels={interests.map((interest) => interest.labelZh)}
           preferences={preferences}
           initialPayload={payload}
           onHarvested={(incoming) => {
@@ -658,6 +633,7 @@ export default function FeederWorkspace({
           t={(zh, en) => t(zh, en, locale)}
           savedResourceIds={resources.map((resource) => resource.id)}
           onSaveResource={save}
+          onEditInterests={onEditInterests}
           onRelaxMatching={() => {
             onOnlySelectedTagsChange(false);
             onInterestRuleChange('requireAllSelectedTags', false);
@@ -666,23 +642,19 @@ export default function FeederWorkspace({
         />
       ) : (
         <>
-          <section className={styles.scorePanel} aria-label="Jev feed status">
+          <section className={styles.scorePanel} aria-label="Feed relevance">
             <div className={styles.scorePanelTop}>
               <div>
-                <span className={styles.eyebrow}>YOUR FEED TARGET</span>
-                <h2>Jev average {simulation.average?.toFixed(2) ?? '—'} / 10</h2>
+                <span className={styles.eyebrow}>YOUR FEED</span>
+                <h2>Relevance</h2>
               </div>
               <strong className={styles.scoreState}>{scoringState}</strong>
             </div>
-            <p>
-              Target {targetAverage} is the minimum average title relevance of displayed items.
-              Lower values allow more nearby topics; explicit exclusions still apply.
-            </p>
             <label className={styles.scoreSlider}>
-              <span>Choose target average: {targetAverage}</span>
+              <span>Relevance: {targetAverage} / 10</span>
               <input
                 type="range"
-                aria-label="Jev target average"
+                aria-label="Relevance"
                 min="1"
                 max="10"
                 step="1"
@@ -690,10 +662,15 @@ export default function FeederWorkspace({
                 onChange={(event) => onTargetJevAverageChange(Number(event.target.value))}
               />
               <span className={styles.rangeEndpoints}>
-                <span>1 · More variety</span>
-                <span>10 · More focused</span>
+                <span>Lower · Broader</span>
+                <span>Higher · More focused</span>
               </span>
             </label>
+            <p>
+              Higher: closer to your tags, with fewer and narrower results. Lower: more related
+              topics, though some results may drift from your tags.
+            </p>
+            <p>Actual average: {simulation.average?.toFixed(2) ?? '—'} / 10</p>
             <div className={styles.scoreProgressText}>
               {simulation.ratedCount} of {candidates.length} candidates scored ({ratedPercent}%) ·{' '}
               {simulation.items.length} shown
@@ -800,8 +777,12 @@ export default function FeederWorkspace({
                       </>
                     )}
                   </div>
-                  {item.imageUrl && (
-                    <img className={styles.cover} src={item.imageUrl} alt="" loading="lazy" />
+                  {item.source === 'Bilibili' ? (
+                    <BilibiliVideo item={item} />
+                  ) : (
+                    item.imageUrl && (
+                      <img className={styles.cover} src={item.imageUrl} alt="" loading="lazy" />
+                    )
                   )}
                   <h2>{item.title}</h2>
                   {item.summary && <p>{item.summary}</p>}
@@ -838,7 +819,7 @@ export default function FeederWorkspace({
                       Open source <ArrowUpRight size={15} />
                     </a>
                     <button onClick={() => save(item)} disabled={saved}>
-                      <Bookmark size={15} /> {saved ? 'Saved' : 'Save for later'}
+                      <Bookmark size={15} /> {saved ? 'Saved' : 'Save to library'}
                     </button>
                     <details className={styles.moreActions}>
                       <summary>More actions</summary>

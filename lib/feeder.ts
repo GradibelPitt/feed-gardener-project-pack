@@ -134,10 +134,13 @@ export function rankHarvestCandidates(
       .map((event) => event.itemKey),
   );
   const selected = new Set(preferences.tags);
+  const useDomains = selected.size === 0 && preferences.customTags.length === 0;
   const selectedDomains = new Set(
-    preferences.tags
-      .map((id) => tagById.get(id)?.domainId)
-      .filter((id): id is string => Boolean(id)),
+    useDomains
+      ? preferences.domains
+      : preferences.tags
+          .map((id) => tagById.get(id)?.domainId)
+          .filter((id): id is string => Boolean(id)),
   );
   const customTerms = new Set(
     preferences.customTags.flatMap((tag) => [tag.label, tag.labelEn, tag.labelZh].map(normalize)),
@@ -164,9 +167,23 @@ export function rankHarvestCandidates(
   }
   const candidates = [...byUrl].map(([key, item]) => {
     const matchedTagIds = matchedHarvestTagIds(item);
-    const coreTags = matchedTagIds.filter((id) => selected.has(id));
+    const coreTags = matchedTagIds.filter(
+      (id) =>
+        selected.has(id) || (useDomains && selectedDomains.has(tagById.get(id)?.domainId ?? '')),
+    );
     const customMatch = item.tags.some((tag) => customTerms.has(normalize(tag)));
-    const exploratory = coreTags.length === 0 && !customMatch;
+    const domainMatch =
+      useDomains &&
+      domains.some(
+        (domain) =>
+          selectedDomains.has(domain.id) &&
+          item.tags.some((tag) =>
+            [domain.id, domain.label, domain.labelEn].some(
+              (label) => normalize(tag) === normalize(label),
+            ),
+          ),
+      );
+    const exploratory = coreTags.length === 0 && !customMatch && !domainMatch;
     const adjacent = matchedTagIds.some((id) =>
       selectedDomains.has(tagById.get(id)?.domainId ?? ''),
     );
@@ -184,6 +201,7 @@ export function rankHarvestCandidates(
       Math.round(
         (relevance * 10 +
           (customMatch ? 7 : 0) +
+          (domainMatch ? 7 : 0) +
           (adjacent ? 1 : 0) +
           freshness * 2 +
           sourcePreference * 2 +
@@ -195,6 +213,7 @@ export function rankHarvestCandidates(
       return `${tag?.labelEn ?? id} · interest ${effectiveTagJev(id, preferences, events, now).toFixed(2)}`;
     });
     if (customMatch) reasons.push('Matches a topic you chose');
+    if (domainMatch) reasons.push('Matches an area you chose');
     if (sourcePreference > 0) reasons.push(`Your positive feedback from ${item.source}`);
     if (authorPreference > 0) reasons.push(`Your positive feedback for ${item.author}`);
     if (exploratory) reasons.push(adjacent ? 'Explore a nearby topic' : 'Explore a public source');
@@ -208,7 +227,8 @@ export function rankHarvestCandidates(
   if (options.pool) return candidates.sort(ordered).slice(0, limit);
   const core = candidates.filter((item) => !item.exploratory).sort(ordered);
   if (preferences.onlySelectedTags || preferences.exploration <= 0) return core.slice(0, limit);
-  const noSelectedInterests = selected.size === 0 && customTerms.size === 0;
+  const noSelectedInterests =
+    selected.size === 0 && customTerms.size === 0 && selectedDomains.size === 0;
   if (noSelectedInterests) return candidates.sort(ordered).slice(0, limit);
   if (core.length === 0) return [];
   const explorationFraction = Math.min(0.5, Math.max(0, preferences.exploration / 100));

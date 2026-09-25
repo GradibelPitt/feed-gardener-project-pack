@@ -4,10 +4,14 @@ import {
   seedTagSuggestions,
   type TagSuggestion,
 } from '@/lib/tag-suggestions';
+import { domains } from '@/lib/feed';
 
 export const runtime = 'nodejs';
 
-const liveCache = new Map<string, { expiresAt: number; suggestions: TagSuggestion[] }>();
+const liveCache = new Map<
+  string,
+  { expiresAt: number; retrievedAt: string; suggestions: TagSuggestion[] }
+>();
 
 const cleanStrings = (value: unknown, limit: number) =>
   Array.isArray(value)
@@ -31,6 +35,16 @@ export async function POST(request: Request) {
   const tagIds = cleanStrings(body.tagIds, 12);
   const domainIds = cleanStrings(body.domainIds, 6);
   const customTerms = cleanStrings(body.customTerms, 6);
+  const domainTerms =
+    tagIds.length || customTerms.length
+      ? []
+      : domains
+          .filter((domain) => domainIds.includes(domain.id))
+          .map((domain) => domain.labelEn)
+          .slice(0, 2);
+  const searchTerms = [...customTerms, ...domainTerms];
+  const excludeTerms = cleanStrings(body.excludeTerms, 80);
+  const fresh = body.fresh === true;
   const readingLanguage =
     body.readingLanguage === 'zh' || body.readingLanguage === 'en'
       ? body.readingLanguage
@@ -38,17 +52,30 @@ export async function POST(request: Request) {
   const seed = seedTagSuggestions(tagIds, domainIds, readingLanguage);
   let live: TagSuggestion[] = [];
   let liveStatus: 'live' | 'degraded' | 'idle' =
-    tagIds.length || customTerms.length ? 'live' : 'idle';
+    tagIds.length || searchTerms.length ? 'live' : 'idle';
   let warning: string | null = null;
+  let retrievedAt: string | null = null;
   if (liveStatus === 'live') {
     try {
-      const cacheKey = JSON.stringify({ tagIds, customTerms, readingLanguage });
+      const cacheKey = JSON.stringify({
+        tagIds,
+        domainIds,
+        searchTerms,
+        excludeTerms,
+        readingLanguage,
+      });
       const cached = liveCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
+      if (!fresh && cached && cached.expiresAt > Date.now()) {
         live = cached.suggestions;
+        retrievedAt = cached.retrievedAt;
       } else {
-        live = await fetchGithubTagSuggestions(tagIds, customTerms, readingLanguage);
-        liveCache.set(cacheKey, { expiresAt: Date.now() + 10 * 60_000, suggestions: live });
+        live = await fetchGithubTagSuggestions(tagIds, searchTerms, readingLanguage, excludeTerms);
+        retrievedAt = new Date().toISOString();
+        liveCache.set(cacheKey, {
+          expiresAt: Date.now() + 10 * 60_000,
+          retrievedAt,
+          suggestions: live,
+        });
       }
     } catch (error) {
       liveStatus = 'degraded';
@@ -57,9 +84,13 @@ export async function POST(request: Request) {
   }
   return apiSuccess(
     {
-      suggestions: [...live, ...seed].slice(0, 16),
+      suggestions:
+        domainIds.length && !tagIds.length && !customTerms.length
+          ? [...seed, ...live].slice(0, 16)
+          : [...live, ...seed].slice(0, 16),
       liveStatus,
       warning,
+      retrievedAt,
       readingLanguage,
       provenance: {
         live: 'Public GitHub repository topics from a current search.',

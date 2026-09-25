@@ -6,6 +6,7 @@ import { parseGithubTrendingRss } from './crawler/github.ts';
 import { detectSocialPlatform, SocialResolveError } from './crawler/social.ts';
 import { defaultPreferences, matchesHarvestPreferences } from './feed.ts';
 import { fetchYouTubeSearch, youtubeEmbedUrl } from './crawler/youtube.ts';
+import { bilibiliEmbedUrl, bilibiliSearchTerms, fetchBilibiliSearch } from './crawler/bilibili.ts';
 
 test('classifier keeps vector database content out of the short RAG token false positive', () => {
   const [domain, matches] = classifyDomain(
@@ -108,5 +109,64 @@ test('YouTube search maps official title and thumbnail and ignores malformed vid
     globalThis.fetch = fetchBefore;
     if (before === undefined) delete process.env.YOUTUBE_API_KEY;
     else process.env.YOUTUBE_API_KEY = before;
+  }
+});
+
+test('Bilibili searches both language labels in parallel and deduplicates video cards', async () => {
+  const before = globalThis.fetch;
+  const requested: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    requested.push(url.searchParams.get('keyword') ?? '');
+    assert.equal(url.pathname, '/x/web-interface/wbi/search/type');
+    return Response.json({
+      code: 0,
+      data: {
+        result: [
+          {
+            bvid: 'BV1pYaA6FE5T',
+            title: '<em class="keyword">机器人</em>与 AI',
+            description: '人工智能演示',
+            author: '研究者',
+            pic: '//i1.hdslb.com/bfs/archive/example.jpg',
+            tag: '机器人,人工智能,AI',
+            pubdate: 1790253000,
+          },
+        ],
+      },
+    });
+  };
+  try {
+    assert.deepEqual(bilibiliSearchTerms(['Robotics']), ['Robotics', '机器人']);
+    assert.deepEqual(bilibiliSearchTerms(['AI'], ['人工智能']), ['AI', '人工智能']);
+    const items = await fetchBilibiliSearch(['AI'], ['人工智能']);
+    assert.deepEqual(requested.sort(), ['AI', '人工智能'].sort());
+    assert.equal(items.length, 1);
+    assert.equal(items[0].title, '机器人 与 AI');
+    assert.equal(items[0].imageUrl, 'https://i1.hdslb.com/bfs/archive/example.jpg');
+    assert.equal(items[0].embedUrl, bilibiliEmbedUrl('BV1pYaA6FE5T'));
+    assert.equal(items[0].provenance.mode, 'public_api');
+    assert.equal(bilibiliEmbedUrl('BV1pYaA6FE5T&autoplay=1'), null);
+    assert.equal(
+      matchesHarvestPreferences(items[0], {
+        ...defaultPreferences,
+        tags: [],
+        customTags: [
+          {
+            id: 'ai',
+            label: 'AI',
+            labelEn: 'AI',
+            labelZh: '人工智能',
+            translationStatus: 'translated',
+            source: 'github_live',
+            evidenceUrl: 'https://github.com/example/ai',
+          },
+        ],
+        onlySelectedTags: true,
+      }),
+      true,
+    );
+  } finally {
+    globalThis.fetch = before;
   }
 });

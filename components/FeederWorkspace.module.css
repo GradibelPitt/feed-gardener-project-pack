@@ -596,6 +596,47 @@
   margin-bottom: 15px;
 }
 
+.nearbyRefresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  color: #496a56;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.nearbyRefresh:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.nearbyChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nearbyChips span {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid #dbe6d8;
+  border-radius: 6px;
+  background: #f3f8f2;
+  color: #496554;
+  font-size: 13px;
+}
+
+.panel .nearbyChecked {
+  margin: 11px 0 0;
+  font-size: 11px;
+}
+
 .helpHint {
   flex: 0 0 auto;
   color: #496a56;
@@ -652,31 +693,6 @@
 .helpHint:focus-within .helpText {
   opacity: 1;
   visibility: visible;
-}
-
-.weightList {
-  display: grid;
-  gap: 7px;
-}
-
-.weightRow {
-  display: grid;
-  grid-template-columns: minmax(110px, 1fr) minmax(100px, 2fr) 45px;
-  align-items: center;
-  gap: 16px;
-  padding: 9px 0;
-  border-top: 1px solid #edf1ea;
-  font-size: 13px;
-}
-
-.weightRow input {
-  width: 100%;
-  accent-color: #4b8064;
-}
-
-.weightRow strong {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .twoColumns {

@@ -78,6 +78,20 @@ const technicalTranslations: Record<string, string> = {
   web: 'Web',
 };
 
+const technicalEnglish: Record<string, string> = {
+  ai: 'AI',
+  api: 'API',
+  cli: 'CLI',
+  cpu: 'CPU',
+  fastapi: 'FastAPI',
+  gguf: 'GGUF',
+  gpu: 'GPU',
+  llm: 'LLM',
+  mcp: 'MCP',
+  rag: 'RAG',
+  tui: 'TUI',
+};
+
 export function translateGithubTopicToZh(value: string): {
   label: string;
   status: 'translated' | 'source_label';
@@ -157,8 +171,13 @@ export function githubTopicSuggestions(
         previous.mentions += 1;
       } else {
         const labelEn = raw
-          .replace(/[-_]+/g, ' ')
-          .replace(/\b\w/g, (letter) => letter.toUpperCase());
+          .split(/[-_\s]+/)
+          .filter(Boolean)
+          .map(
+            (part) =>
+              technicalEnglish[part.toLowerCase()] ?? part.replace(/^\w/, (c) => c.toUpperCase()),
+          )
+          .join(' ');
         const localized = translateGithubTopicToZh(raw);
         candidates.set(normalized, {
           id: `live:github:${tagSlug}`,
@@ -201,6 +220,7 @@ export async function fetchGithubTagSuggestions(
   tagIds: string[],
   customTerms: string[],
   readingLanguage: ReadingLanguage,
+  excludeTerms: string[] = [],
 ): Promise<TagSuggestion[]> {
   const terms = queryTerms(tagIds, customTerms);
   if (!terms.length) return [];
@@ -227,7 +247,7 @@ export async function fetchGithubTagSuggestions(
   }>;
   return githubTopicSuggestions(
     payloads.flatMap((payload) => payload.items ?? []),
-    terms,
+    [...terms, ...tagIds, ...excludeTerms],
     readingLanguage,
   );
 }

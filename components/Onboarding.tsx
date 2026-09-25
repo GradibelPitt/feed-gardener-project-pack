@@ -22,6 +22,7 @@ import {
   Leaf,
   Music2,
   Minus,
+  Plus,
   Palette,
   PawPrint,
   Plane,
@@ -42,7 +43,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { interestCategories } from '@/lib/feed';
+import { interestCategories, type CustomTag } from '@/lib/feed';
 
 export type OnboardingStep = 'intro' | 'explore' | 'exclude';
 
@@ -51,9 +52,11 @@ type OnboardingProps = {
   transitionDirection: 'forward' | 'backward';
   wantedTags: string[];
   blockedTags: string[];
+  customTags: CustomTag[];
   onStepChange: (step: OnboardingStep) => void;
   onWantedTagsChange: (tags: string[]) => void;
   onBlockedTagsChange: (tags: string[]) => void;
+  onCustomTagsChange: (tags: CustomTag[]) => void;
   onComplete: () => void;
 };
 
@@ -165,14 +168,19 @@ export default function Onboarding({
   transitionDirection,
   wantedTags,
   blockedTags,
+  customTags,
   onStepChange,
   onWantedTagsChange,
   onBlockedTagsChange,
+  onCustomTagsChange,
   onComplete,
 }: OnboardingProps) {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [expandedDomains, setExpandedDomains] = useState<string[]>([]);
   const [query, setQuery] = useState('');
+  const [customTagOpen, setCustomTagOpen] = useState(false);
+  const [customTagInput, setCustomTagInput] = useState('');
+  const [customTagError, setCustomTagError] = useState('');
   const [leaving, setLeaving] = useState(false);
   const [direction, setDirection] = useState(transitionDirection);
   const [showSelections, setShowSelections] = useState(false);
@@ -182,6 +190,7 @@ export default function Onboarding({
   const activeCategory = interestCategories.find((category) => category.id === categoryId);
   const exploring = step !== 'exclude';
   const selected = exploring ? wantedTags : blockedTags;
+  const selectedCount = selected.length + (exploring ? customTags.length : 0);
   const viewKey = step + '/' + (categoryId ?? '');
 
   useEffect(
@@ -269,6 +278,49 @@ export default function Onboarding({
     setExpandedDomains((current) => [...new Set([...current, id])]);
   };
   const normalizedQuery = query.trim().toLowerCase();
+  const addCustomTag = () => {
+    const label = customTagInput.normalize('NFKC').trim().replace(/\s+/g, ' ');
+    if (!label) {
+      setCustomTagError('Enter a tag to add.');
+      return;
+    }
+    if (label.length > 80) {
+      setCustomTagError('Keep your tag under 80 characters.');
+      return;
+    }
+    const normalized = label.toLocaleLowerCase();
+    if (
+      allTags.some(
+        (tag) =>
+          tag.labelEn.toLocaleLowerCase() === normalized ||
+          tag.label.toLocaleLowerCase() === normalized,
+      ) ||
+      customTags.some((tag) => tag.label.toLocaleLowerCase() === normalized)
+    ) {
+      setCustomTagError('That tag already exists. Pick it from your interests.');
+      return;
+    }
+    if (customTags.length >= 12) {
+      setCustomTagError('You can add up to 12 of your own tags.');
+      return;
+    }
+    onCustomTagsChange([
+      ...customTags,
+      {
+        id: `manual:${encodeURIComponent(normalized)}`,
+        label,
+        labelEn: label,
+        labelZh: label,
+        translationStatus: 'source_label',
+        source: 'manual',
+        evidenceUrl: '',
+      },
+    ]);
+    setCustomTagInput('');
+    setCustomTagError('');
+    setCustomTagOpen(false);
+    setQuery('');
+  };
   const matches = (labels: string[]) =>
     labels.some((label) => label.toLowerCase().includes(normalizedQuery));
   const categories = interestCategories.filter(
@@ -651,6 +703,48 @@ export default function Onboarding({
         </section>
       </div>
 
+      {step === 'explore' && (
+        <div className="onboarding-custom-tag">
+          {customTagOpen && (
+            <form
+              className="onboarding-custom-tag-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                addCustomTag();
+              }}
+            >
+              <label htmlFor="onboarding-custom-tag-input">Add your own tag</label>
+              <div>
+                <input
+                  id="onboarding-custom-tag-input"
+                  autoFocus
+                  value={customTagInput}
+                  onChange={(event) => {
+                    setCustomTagInput(event.target.value);
+                    setCustomTagError('');
+                  }}
+                  maxLength={80}
+                  placeholder="e.g. Urban gardening"
+                />
+                <button type="submit">Add</button>
+              </div>
+              {customTagError && <p role="alert">{customTagError}</p>}
+            </form>
+          )}
+          <button
+            className="onboarding-custom-tag-trigger"
+            aria-expanded={customTagOpen}
+            onClick={() => {
+              setCustomTagOpen((value) => !value);
+              setCustomTagError('');
+            }}
+          >
+            {customTagOpen ? <X size={15} /> : <Plus size={15} />}
+            {customTagOpen ? 'Close' : "Didn't find your tag? Add your own"}
+          </button>
+        </div>
+      )}
+
       {step === 'intro' ? (
         <span className="onboarding-footnote">
           A few small choices. A world that feels more like you.
@@ -669,17 +763,33 @@ export default function Onboarding({
                 </button>
               </div>
               <div>
-                {selected.length ? (
-                  selected.map((id) => (
-                    <button
-                      key={id}
-                      onClick={() => toggle(id)}
-                      aria-label={'Remove ' + (allTags.find((tag) => tag.id === id)?.labelEn ?? id)}
-                    >
-                      {allTags.find((tag) => tag.id === id)?.labelEn ?? id}
-                      <X size={13} />
-                    </button>
-                  ))
+                {selectedCount ? (
+                  <>
+                    {selected.map((id) => (
+                      <button
+                        key={id}
+                        onClick={() => toggle(id)}
+                        aria-label={
+                          'Remove ' + (allTags.find((tag) => tag.id === id)?.labelEn ?? id)
+                        }
+                      >
+                        {allTags.find((tag) => tag.id === id)?.labelEn ?? id}
+                        <X size={13} />
+                      </button>
+                    ))}
+                    {exploring &&
+                      customTags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          onClick={() =>
+                            onCustomTagsChange(customTags.filter((item) => item.id !== tag.id))
+                          }
+                          aria-label={'Remove ' + tag.label}
+                        >
+                          {tag.label} <X size={13} />
+                        </button>
+                      ))}
+                  </>
                 ) : (
                   <span>Your next favorite thing is waiting.</span>
                 )}
@@ -692,11 +802,11 @@ export default function Onboarding({
           </button>
           <button
             className="onboarding-selection-summary"
-            aria-label={`${selected.length} ${exploring ? 'interests picked' : 'topics excluded'}`}
+            aria-label={`${selectedCount} ${exploring ? 'interests picked' : 'topics excluded'}`}
             aria-expanded={showSelections}
             onClick={() => setShowSelections((value) => !value)}
           >
-            <span className="onboarding-selection-number">{selected.length}</span>
+            <span className="onboarding-selection-number">{selectedCount}</span>
             <span>{exploring ? 'interests picked' : 'topics excluded'}</span>
           </button>
           <button
@@ -704,16 +814,12 @@ export default function Onboarding({
             disabled={leaving}
             onClick={() =>
               navigate(() =>
-                exploring
-                  ? selected.length
-                    ? onStepChange('exclude')
-                    : onComplete()
-                  : onComplete(),
+                exploring ? (selectedCount ? onStepChange('exclude') : onComplete()) : onComplete(),
               )
             }
           >
             {exploring
-              ? selected.length
+              ? selectedCount
                 ? 'Next: less of this'
                 : 'Explore sources first'
               : selected.length

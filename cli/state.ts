@@ -90,10 +90,12 @@ export function readState(value: unknown): CliState {
           .filter(
             (item) =>
               typeof item.id === 'string' &&
-              item.id.startsWith('live:github:') &&
+              ((item.source === 'manual' && item.id.startsWith('manual:')) ||
+                (item.id.startsWith('live:github:') &&
+                  typeof item.evidenceUrl === 'string' &&
+                  item.evidenceUrl.startsWith('https://github.com/'))) &&
               typeof item.label === 'string' &&
-              typeof item.evidenceUrl === 'string' &&
-              item.evidenceUrl.startsWith('https://github.com/'),
+              item.label.trim().length > 0,
           )
           .slice(0, 12)
           .map((item) => ({
@@ -111,8 +113,8 @@ export function readState(value: unknown): CliState {
               item.translationStatus === 'translated'
                 ? ('translated' as const)
                 : ('source_label' as const),
-            source: 'github_live' as const,
-            evidenceUrl: String(item.evidenceUrl),
+            source: item.source === 'manual' ? ('manual' as const) : ('github_live' as const),
+            evidenceUrl: item.source === 'manual' ? '' : String(item.evidenceUrl),
           }))
       : [],
     exploration:

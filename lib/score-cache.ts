@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 // The key contains no title or raw interest tags. Changing the scoring rubric
 // requires a new version so an old score cannot silently change the feed.
-const RUBRIC_VERSION = 1;
+const RUBRIC_VERSION = 2;
 const TTL_MS = 6 * 60 * 60_000;
 
 export type CachedScore = {

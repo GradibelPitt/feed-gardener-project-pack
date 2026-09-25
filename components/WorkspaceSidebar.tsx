@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   ArrowUpRight,
   Bookmark,
@@ -17,15 +18,12 @@ export const WORKSPACE_TABS = [
   { id: 'discover', icon: Compass, zh: '发现好内容', en: 'Discover' },
   { id: 'garden', icon: Sprout, zh: '我的信息花园', en: 'My garden' },
   { id: 'library', icon: Layers3, zh: '资源库', en: 'Resource library' },
-  { id: 'saved', icon: Bookmark, zh: '稍后阅读', en: 'Saved for later' },
 ] as const;
 
 type Props = {
   page: WorkspacePage;
   t: (zh: string, en: string) => string;
   mobileOpen: boolean;
-  resourceCount: number;
-  savedCount: number;
   onNavigate: (page: WorkspacePage) => void;
   onCloseMobile: () => void;
 };
@@ -34,11 +32,26 @@ export default function WorkspaceSidebar({
   page,
   t,
   mobileOpen,
-  resourceCount,
-  savedCount,
   onNavigate,
   onCloseMobile,
 }: Props) {
+  const [libraryExpanded, setLibraryExpanded] = useState(page === 'saved');
+
+  useEffect(() => {
+    if (page === 'saved') setLibraryExpanded(true);
+  }, [page]);
+
+  const navigate = (next: WorkspacePage) => {
+    if (next === 'library') {
+      setLibraryExpanded((open) => (page === 'library' ? !open : true));
+    } else if (next === 'saved') {
+      setLibraryExpanded(true);
+    } else {
+      setLibraryExpanded(false);
+    }
+    onNavigate(next);
+  };
+
   return (
     <>
       {mobileOpen && (
@@ -52,7 +65,7 @@ export default function WorkspaceSidebar({
         className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}
         aria-label={t('工作台导航', 'Workspace navigation')}
       >
-        <button className="brand" onClick={() => onNavigate('discover')}>
+        <button className="brand" onClick={() => navigate('discover')}>
           <span className="brand-mark">
             <Sprout size={27} strokeWidth={1.6} />
           </span>
@@ -64,18 +77,30 @@ export default function WorkspaceSidebar({
         <span className="nav-label">{t('你的工作台', 'WORKSPACE')}</span>
         <nav aria-label={t('主页面', 'Main pages')}>
           {WORKSPACE_TABS.map((item) => (
-            <button
-              key={item.id}
-              aria-current={page === item.id ? 'page' : undefined}
-              className={`nav-item ${page === item.id ? 'active' : ''}`}
-              onClick={() => onNavigate(item.id)}
-            >
-              <item.icon size={19} strokeWidth={1.7} />
-              <span>{t(item.zh, item.en)}</span>
-              {item.id === 'saved' && savedCount > 0 && <small>{savedCount}</small>}
-              {item.id === 'library' && resourceCount > 0 && <small>{resourceCount}</small>}
-              {item.id === 'garden' && <i />}
-            </button>
+            <div className="sidebar-nav-group" key={item.id}>
+              <button
+                aria-current={page === item.id ? 'page' : undefined}
+                aria-expanded={item.id === 'library' ? libraryExpanded : undefined}
+                className={`nav-item ${page === item.id ? 'active' : ''}`}
+                onClick={() => navigate(item.id)}
+              >
+                <item.icon size={19} strokeWidth={1.7} />
+                <span>{t(item.zh, item.en)}</span>
+                {item.id === 'garden' && <i />}
+              </button>
+              {item.id === 'library' && libraryExpanded && (
+                <div className="sidebar-subnav">
+                  <button
+                    className={`nav-item sidebar-subitem ${page === 'saved' ? 'active' : ''}`}
+                    aria-current={page === 'saved' ? 'page' : undefined}
+                    onClick={() => navigate('saved')}
+                  >
+                    <Bookmark size={19} strokeWidth={1.7} />
+                    <span>{t('稍后阅读', 'Saved for later')}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -90,7 +115,7 @@ export default function WorkspaceSidebar({
           </div>
           <button
             className={`nav-item ${page === 'connections' ? 'active' : ''}`}
-            onClick={() => onNavigate('connections')}
+            onClick={() => navigate('connections')}
           >
             <Link2 size={18} />
             {t('连接与隐私', 'Connections & privacy')}

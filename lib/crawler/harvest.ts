@@ -1,4 +1,5 @@
 import { fetchArxiv } from './arxiv.ts';
+import { fetchBilibiliSearch } from './bilibili.ts';
 import { fetchGithub } from './github.ts';
 import { fetchHackerNews } from './hackernews.ts';
 import { socialHealth } from './social.ts';
@@ -85,13 +86,14 @@ export async function harvestPublicSources(
   forceRefresh = false,
   youtubeTags: string[] = [],
   source?: LiveSource,
+  localizedTags: string[] = [],
 ): Promise<HarvestPayload> {
   const now = Date.now();
   const terms = youtubeTags
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 2);
-  const cacheKey = `${source ?? 'all'}\u0001${terms.join('\u0000')}\u0001${youtubeSearchKeyRevision()}`;
+  const cacheKey = `${source ?? 'all'}\u0001${terms.join('\u0000')}\u0001${localizedTags.join('\u0000')}\u0001${youtubeSearchKeyRevision()}`;
   const snapshot = cached.get(cacheKey);
   if (!forceRefresh && snapshot && snapshot.expiresAt > now) {
     return { ...snapshot.payload, cache: 'hit' };
@@ -106,6 +108,9 @@ export async function harvestPublicSources(
       : []),
     ...((!source || source === 'YouTube') && youtubeSearchConfigured() && terms.length
       ? [collect('YouTube', 'social', () => fetchYouTubeSearch(terms))]
+      : []),
+    ...((!source || source === 'Bilibili') && terms.length
+      ? [collect('Bilibili', 'social', () => fetchBilibiliSearch(terms, localizedTags))]
       : []),
   ]);
   const social = dedupe(
@@ -142,6 +147,20 @@ export async function harvestPublicSources(
     sections: { social, academic, opensource },
     health: [
       ...socialHealth().filter((item) => !source || item.source === source),
+      ...((!source || source === 'Bilibili') && !terms.length
+        ? [
+            {
+              source: 'Bilibili' as const,
+              section: 'social' as const,
+              state: 'limited' as const,
+              label: '等待兴趣',
+              labelEn: 'Waiting for topics',
+              detail: '选择兴趣后开始搜索',
+              detailEn: 'Choose topics to search',
+              itemCount: 0,
+            },
+          ]
+        : []),
       ...((!source || source === 'YouTube') && youtubeSearchConfigured()
         ? terms.length
           ? []

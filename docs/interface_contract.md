@@ -13,7 +13,9 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 服务端调用 Google API 时通过 `x-goog-api-key` 请求头传递密钥，不将密钥写入请求 URL。
 
-`GET /api/harvest` 还可选传单个 `source`，取值为既有来源名 `arXiv`、`GitHub`、`Hacker News`、`YouTube`、`TikTok`、`X` 或 `Instagram`。缺失时保留原批量行为；指定时只运行该来源已有的采集器，返回相同的 `sections` / `health` / `warnings` 形状。TikTok、X、Instagram 不支持无链接的搜索，因此该参数只返回能力状态，不请求外部平台；单条公开 URL 仍用既有 `POST /api/social/resolve`。无效来源返回 400。来源与标签共同构成五分钟缓存键；`refresh=true` 仍强制刷新。前端进入页面和切换板块不调用采集，点击来源按钮或手动刷新才调用。
+Bilibili 复用 `GET /api/harvest` 的 `source=Bilibili` 和 `tag` 参数；可选、按位置对应的 `tagZh` 参数提供最多两个中文对照。服务端也会把内置标签的英文名映射到已有中文名，对每个兴趣并行请求中英文公开搜索，按 BV 号去重。只读取公开搜索元数据，不读取账号、Cookie 或播放流。卡片显示封面、标题、UP 主、公开标签和 Bilibili 官方外链播放器；播放器仅在用户点击后加载。Bilibili 卡片可进入 Feeder 候选与 Jev 标题评分；评分输入把中英文同义名称写在同一个兴趣项中。公开搜索接口可能限制请求；失败时 `health` 显示来源错误，其他来源继续工作。
+
+`GET /api/harvest` 还可选传单个 `source`，取值为既有来源名 `arXiv`、`GitHub`、`Hacker News`、`YouTube`、`Bilibili`、`TikTok`、`X` 或 `Instagram`。缺失时保留原批量行为；指定时只运行该来源已有的采集器，返回相同的 `sections` / `health` / `warnings` 形状。TikTok、X、Instagram 不支持无链接的搜索，因此该参数只返回能力状态，不请求外部平台；单条公开 URL 仍用既有 `POST /api/social/resolve`。无效来源返回 400。来源与标签共同构成五分钟缓存键；`refresh=true` 仍强制刷新。前端进入页面和切换板块不调用采集，点击来源按钮或手动刷新才调用。
 
 `PUT /api/harvest` 是同一采集资源的本机 YouTube 搜索配置操作，接收 JSON `{ "source": "YouTube", "apiKey": "..." }`。只接受本机同源请求与 20–256 个安全字符的 key；返回 `{ "configured": true }`，永不回传 key。传入空字符串 `apiKey: ""` 会清除本次进程的搜索 key 并返回 `{ "configured": false }`；若有环境变量 key，也会暂时禁用搜索，重启后恢复环境变量配置。网页以密码框提交，成功后清空输入并通过 `GET /api/harvest?source=YouTube&refresh=true` 搜索已选主题。key 仅留在本机服务进程内存，不写 localStorage、CLI 文件、磁盘或日志；重启即失效。环境变量 `YOUTUBE_API_KEY` 仍兼容；网页输入在本次进程中覆盖它。配置变更使旧的 YouTube 采集缓存失效。此 key 与 YouTube OAuth 账号连接无关。
 
@@ -67,7 +69,7 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 | `harvestPublicSources` | `GET /api/harvest` | 聚合允许的公开元数据来源 | 不登录、不读取 Cookie、不读取私人 feed |
 | `configureYouTubeSearch` | `PUT /api/harvest` | 为当前本机进程设置 YouTube 搜索 key | 同源、本机、只在内存、响应不回传 key |
 | `resolveSocialUrl` | `POST /api/social/resolve` | 解析用户提供的单条允许域公开链接 | HTTPS 与 host allowlist；不是搜索接口 |
-| `suggestTags` | `POST /api/tags/suggest` | 合并内置目录与公开 GitHub topic 候选 | 候选不会自动写入用户偏好 |
+| `suggestTags` | `POST /api/tags/suggest` | 合并内置目录与公开 GitHub topic 候选；`fresh: true` 可强制重查，`excludeTerms` 排除主题，`retrievedAt` 标记联网时间 | 候选不会自动写入用户偏好；My garden 的 Nearby topics 只展示可核验的 live 主题名称与更新时间，失败时不显示内置候选 |
 | `youtubeConnection` | `GET /api/connections/youtube` | 读取配置与经核验的频道身份 | 只读，token 不出服务端 |
 | `connectYouTube` | `POST /api/connections/youtube` | 发起 Google 只读授权 | 同源、明确同意、state/PKCE |
 | `disconnectYouTube` | `DELETE /api/connections/youtube` | 断开并请求 Google 撤销 | 区分本地删除与远端撤销 |
@@ -104,11 +106,13 @@ CLI 直接调用现有 `lib/` 领域函数，命令行参数不是 HTTP API。CL
 
 引导最终只存储用户实际选择的 tag，领域 ID 从这些 tag 推导；排除项不能与喜欢项重复。旧本地资料无需迁移，现有读取器仍会丢弃未知 ID。扩展不增加外部采集能力；没有内容匹配时允许结果为空。唯一性、分组引用、旧 ID 兼容和非技术偏好不误配技术样例由 `lib/feed.test.ts` 验证。
 
-`Preferences.onlySelectedTags` 为本地可选布尔字段，旧资料缺失时按 `false` 读取；首次引导跳过排除步骤时设为 `true`。发现页、Garden 控制台和偏好编辑器共用此开关：开启后必须至少匹配一个已选 tag，同领域其他 tag 与探索范围不能绕过它；额外携带未选 tag 不构成排除，但显式排除项始终优先。关闭后恢复既有领域/探索规则，保留原探索配置。保存列表与资源库不因此隐藏已有收藏。公开源仅按元数据 tags 与目录 ID/中英文标签的规范化精确匹配过滤，并兼容既有采集器的 `Agent` → `agents` 别名；未标注的内容不猜测相关性。此筛选规则不以 Jev 分数作为准入条件，也不执行原生平台操作。复用既有采集响应和本地偏好，不增加 HTTP 接口；浏览器持久化、候选过滤和开关交互分别验证。
+`Preferences.onlySelectedTags` 为本地可选布尔字段，旧资料缺失时按 `false` 读取；首次引导跳过排除步骤时设为 `true`。发现页、Garden 控制台和偏好编辑器共用此开关：开启后必须至少匹配一个已选 tag，同领域其他 tag 与探索范围不能绕过它；额外携带未选 tag 不构成排除，但显式排除项始终优先。关闭后恢复既有领域/探索规则，保留原探索配置。资源库不因此隐藏已有收藏。公开源仅按元数据 tags 与目录 ID/中英文标签的规范化精确匹配过滤，并兼容既有采集器的 `Agent` → `agents` 别名；未标注的内容不猜测相关性。此筛选规则不以 Jev 分数作为准入条件，也不执行原生平台操作。复用既有采集响应和本地偏好，不增加 HTTP 接口；浏览器持久化、候选过滤和开关交互分别验证。
 
 ## 本地资源库的分类与粘贴链接
 
 资源库功能复用浏览器本地 `ResourceRecord` 与现有 `resources` 持久化字段；检索过 `lib/api-contract.ts`、现有 Route、`app/page.tsx`、`components/SourceBoards.tsx` 和资源库测试后，没有增加 HTTP 接口。网站分类由 URL 域名派生；类型分类存储为可修改的 `resourceType`，旧记录读取时按 URL 与来源推断。用户粘贴的 HTTP(S) 链接直接在本地生成条目，不调用 `resolveSocialUrl`，也不抓取第三方页面。该 Route 的允许域限制仍只用于公开帖子元数据解析，与本地收藏无关。非法 URL 和重复链接不能加入收藏。
+
+“稍后阅读”作为资源库下的次级视图，复用同一份收藏记录；旧的 `page=saved` 本地状态仍会打开这个视图。命名收藏夹存于独立的 `feed-gardener-collections-v1` 本地字段，资源条目用可选 `collectionId` 归档；旧收藏的 `collectionId: null` 在界面显示为“Default”。新建收藏夹可以留空名称，此时依次使用 `default folder 1`、`default folder 2` 等名称；用户仍可填写或修改名称。没有可选命名收藏夹时，粘贴链接归入 Default（`collectionId: null`）。删除收藏夹时，其中的资源回到 Default，资源本身不会被删除。粘贴链接时自动推断类型；卡片的收藏夹、类型修正、知识状态、笔记和移除操作仅在“编辑”展开后显示。已收藏的视频保留封面与可播放地址；旧 Bilibili 收藏从视频链接恢复播放地址，旧 YouTube 收藏从视频 ID 恢复缩略图，播放器仍只在用户点击后加载。
 
 ## HTTP 状态约定
 

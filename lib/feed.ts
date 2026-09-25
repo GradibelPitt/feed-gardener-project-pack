@@ -9,11 +9,38 @@ export type CustomTag = {
   labelZh: string;
   labelEn: string;
   translationStatus: 'translated' | 'source_label';
-  source: 'github_live';
+  source: 'github_live' | 'manual';
   evidenceUrl: string;
 };
 
 export type ReadingLanguage = 'zh' | 'en' | 'bilingual';
+
+/** Keep translated aliases within the existing Jev tag input limit. */
+export function bilingualInterestLabel(english: string, chinese?: string): string {
+  const base = english.trim();
+  const localized = chinese?.trim();
+  const combined =
+    localized && localized.toLocaleLowerCase() !== base.toLocaleLowerCase()
+      ? `${base} (${localized})`
+      : base;
+  return combined.length <= 80 ? combined : base.slice(0, 80);
+}
+
+/** All discovery surfaces use these same saved interests. Specific tags take priority. */
+export function searchInterests(preferences: Preferences): { labelEn: string; labelZh: string }[] {
+  const selectedTags = domains.flatMap((domain) =>
+    domain.tags.filter((tag) => preferences.tags.includes(tag.id)),
+  );
+  const specific = [
+    ...selectedTags.map((tag) => ({ labelEn: tag.labelEn, labelZh: tag.label })),
+    ...preferences.customTags.map((tag) => ({ labelEn: tag.labelEn, labelZh: tag.labelZh })),
+  ];
+  return specific.length
+    ? specific
+    : domains
+        .filter((domain) => preferences.domains.includes(domain.id))
+        .map((domain) => ({ labelEn: domain.labelEn, labelZh: domain.label }));
+}
 
 export type Content = {
   id: string;
@@ -1095,18 +1122,40 @@ export function matchesHarvestPreferences(
   const customMatches = preferences.customTags.map((tag) =>
     [tag.label, tag.labelEn, tag.labelZh].some((label) => itemTags.has(normalize(label))),
   );
-  const hasSelected = [...selectedMatches, ...customMatches].some(Boolean);
+  const useDomains = selectedMatches.length === 0 && customMatches.length === 0;
+  const domainMatches = useDomains
+    ? preferences.domains.map((id) => {
+        const domain = domainMap.get(id);
+        return Boolean(
+          domain &&
+          ([id, domain.label, domain.labelEn].some((label) => itemTags.has(normalize(label))) ||
+            domain.tags.some((tag) => matchesTag(tag.id))),
+        );
+      })
+    : [];
+  const hasSelected = [...selectedMatches, ...customMatches, ...domainMatches].some(Boolean);
   if (preferences.onlySelectedTags && !hasSelected) return false;
   if (
     preferences.requireAllSelectedTags &&
-    ((!selectedMatches.length && !customMatches.length) ||
+    ((!selectedMatches.length && !customMatches.length && !domainMatches.length) ||
       selectedMatches.some((matched) => !matched) ||
-      customMatches.some((matched) => !matched))
+      customMatches.some((matched) => !matched) ||
+      domainMatches.some((matched) => !matched))
   )
     return false;
   if (
     preferences.excludeUnselectedTags &&
-    [...tagMap.keys()].some((id) => !preferences.tags.includes(id) && matchesTag(id))
+    [...tagMap.keys()].some(
+      (id) =>
+        !preferences.tags.includes(id) &&
+        !(
+          useDomains &&
+          preferences.domains.some((domainId) =>
+            domainMap.get(domainId)?.tags.some((tag) => tag.id === id),
+          )
+        ) &&
+        matchesTag(id),
+    )
   )
     return false;
   return true;

@@ -67,6 +67,27 @@ test('public metadata matches catalog labels without inventing content relevance
   assert.deepEqual(rankHarvestCandidates([item('x', 'unrelated')], profile(), [], { now }), []);
 });
 
+test('a selected area without tags admits and ranks its actual topic metadata', () => {
+  const selected = profile({
+    domains: ['backend-systems'],
+    tags: [],
+    customTags: [],
+    onlySelectedTags: true,
+    excludeUnselectedTags: true,
+  });
+  const result = rankHarvestCandidates(
+    [item('distributed', 'Distributed systems'), item('unrelated', 'Game reviews')],
+    selected,
+    [],
+    { now },
+  );
+  assert.deepEqual(
+    result.map((candidate) => candidate.item.id),
+    ['distributed'],
+  );
+  assert.equal(result[0].exploratory, false);
+});
+
 test('hard exclusions, URL deduplication and selected-only mode win over exploration', () => {
   const items = [
     item('one', 'Agent'),

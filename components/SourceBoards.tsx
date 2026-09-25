@@ -29,9 +29,10 @@ import type {
 import { mergeHarvestPayload } from '@/lib/crawler/merge';
 import { readApiData } from '@/lib/api-contract';
 import type { Locale } from '@/lib/locale';
-import { matchesHarvestPreferences, type Preferences } from '@/lib/feed';
+import { bilingualInterestLabel, matchesHarvestPreferences, type Preferences } from '@/lib/feed';
 import type { JevRating } from '@/lib/feed-simulator';
 import YouTubeVideo from './YouTubeVideo';
+import BilibiliVideo from './BilibiliVideo';
 
 type SourceRating =
   | { state: 'scored'; rating: JevRating }
@@ -44,6 +45,7 @@ function ratingKey(item: HarvestItem, goalKey: string): string {
 type Props = {
   locale: Locale;
   interestLabels: string[];
+  localizedInterestLabels: string[];
   preferences: Preferences;
   initialPayload?: HarvestPayload | null;
   onHarvested?: (payload: HarvestPayload) => void;
@@ -51,12 +53,13 @@ type Props = {
   t: (zh: string, en: string) => string;
   savedResourceIds: string[];
   onSaveResource: (item: HarvestItem) => void;
+  onEditInterests: () => void;
   onRelaxMatching?: () => void;
 };
 
 const SOCIAL_STORAGE = 'feed-gardener-social-imports-v1';
 const sectionSources: Record<FeedSection, LiveSource[]> = {
-  social: ['TikTok', 'Instagram', 'X', 'YouTube'],
+  social: ['YouTube', 'Bilibili'],
   academic: ['arXiv'],
   opensource: ['GitHub', 'Hacker News'],
 };
@@ -66,6 +69,7 @@ const sourcePrompt: Record<LiveSource, string> = {
   Instagram: 'Select to import a public URL',
   X: 'Select to import a public URL',
   YouTube: 'Select to fetch videos',
+  Bilibili: 'Select to fetch videos',
   arXiv: 'Select to fetch papers',
   GitHub: 'Select to fetch repositories',
   'Hacker News': 'Select to fetch stories',
@@ -103,6 +107,7 @@ const sectionMeta: Array<{
 
 const sourceMark: Record<LiveSource, string> = {
   YouTube: 'YT',
+  Bilibili: 'B站',
   TikTok: 'TT',
   Instagram: 'IG',
   X: 'X',
@@ -194,6 +199,8 @@ function ItemCard({
       <div className="source-item-main">
         {item.source === 'YouTube' ? (
           <YouTubeVideo item={item} />
+        ) : item.source === 'Bilibili' ? (
+          <BilibiliVideo item={item} />
         ) : item.imageUrl ? (
           <img className="source-item-cover" src={item.imageUrl} alt="" loading="lazy" />
         ) : null}
@@ -279,6 +286,7 @@ function ItemCard({
 export default function SourceBoards({
   locale,
   interestLabels,
+  localizedInterestLabels,
   preferences,
   initialPayload,
   onHarvested,
@@ -286,6 +294,7 @@ export default function SourceBoards({
   t,
   savedResourceIds,
   onSaveResource,
+  onEditInterests,
   onRelaxMatching,
 }: Props) {
   const [active, setActive] = useState<FeedSection>('social');
@@ -305,6 +314,7 @@ export default function SourceBoards({
   const [ratings, setRatings] = useState<Map<string, SourceRating>>(() => new Map());
   const ratingsRef = useRef(ratings);
   const [retryRevision, setRetryRevision] = useState(0);
+  const hasSearchInterests = interestLabels.some((label) => label.trim().length > 0);
 
   const loadSource = async (source: LiveSource, refresh = false) => {
     setLoadingSource(source);
@@ -314,6 +324,7 @@ export default function SourceBoards({
       params.set('source', source);
       if (refresh) params.set('refresh', 'true');
       interestLabels.slice(0, 2).forEach((tag) => params.append('tag', tag));
+      localizedInterestLabels.slice(0, 2).forEach((tag) => params.append('tagZh', tag));
       const response = await fetch(`/api/harvest?${params}`, {
         cache: 'no-store',
       });
@@ -336,6 +347,10 @@ export default function SourceBoards({
     setSocialError('');
     setYoutubeApiKey('');
     setYoutubeKeyError('');
+    if (source === 'Bilibili' && !hasSearchInterests) {
+      onEditInterests();
+      return;
+    }
     if (!urlSources.has(source)) void loadSource(source);
   };
 
@@ -363,10 +378,13 @@ export default function SourceBoards({
     );
   }, [query, sectionItems, preferences]);
   const visibleItems = filteredItems.slice(0, 24);
-  const goalTags = [...new Set(interestLabels.map((tag) => tag.trim()).filter(Boolean))].slice(
-    0,
-    12,
-  );
+  const goalTags = [
+    ...new Set(
+      interestLabels
+        .map((tag, index) => bilingualInterestLabel(tag, localizedInterestLabels[index]))
+        .filter(Boolean),
+    ),
+  ].slice(0, 12);
   const goalKey = goalTags.join('\u0000');
   const visibleRatingContext = visibleItems.map((item) => ratingKey(item, goalKey)).join('\u0002');
 
@@ -554,7 +572,9 @@ export default function SourceBoards({
           const Icon = section.icon;
           const count = (
             section.id === 'social'
-              ? [...(payload?.sections.social ?? []), ...socialImports]
+              ? (payload?.sections.social ?? []).filter((item) =>
+                  sectionSources.social.includes(item.source),
+                )
               : (payload?.sections[section.id] ?? [])
           ).filter((item) => matchesHarvestPreferences(item, preferences)).length;
           const sectionHealth = payload?.health.filter((item) => item.section === section.id) ?? [];
@@ -630,32 +650,34 @@ export default function SourceBoards({
                   <small>{t('标题评分', 'title scores')}</small>
                 </button>
               )}
-              {selectedSource && !urlSources.has(selectedSource) && (
-                <>
-                  <button
-                    className="source-refresh"
-                    type="button"
-                    disabled={loadingSource !== null || youtubeKeyBusy}
-                    onClick={() => void loadSource(selectedSource, true)}
-                  >
-                    <RefreshCw size={15} className={loadingSource ? 'spinning' : ''} />
-                    {loadingSource
-                      ? t('正在刷新', 'Refreshing')
-                      : t('刷新该来源', 'Refresh this source')}
-                  </button>
-                  {selectedSource === 'YouTube' &&
-                    selectedHealth?.state !== 'configuration_required' && (
-                      <button
-                        className="source-refresh"
-                        type="button"
-                        disabled={loadingSource !== null || youtubeKeyBusy}
-                        onClick={() => void clearYouTube()}
-                      >
-                        {t('清除本机 key', 'Clear local key')}
-                      </button>
-                    )}
-                </>
-              )}
+              {selectedSource &&
+                !urlSources.has(selectedSource) &&
+                !(selectedSource === 'Bilibili' && !hasSearchInterests) && (
+                  <>
+                    <button
+                      className="source-refresh"
+                      type="button"
+                      disabled={loadingSource !== null || youtubeKeyBusy}
+                      onClick={() => void loadSource(selectedSource, true)}
+                    >
+                      <RefreshCw size={15} className={loadingSource ? 'spinning' : ''} />
+                      {loadingSource
+                        ? t('正在刷新', 'Refreshing')
+                        : t('刷新该来源', 'Refresh this source')}
+                    </button>
+                    {selectedSource === 'YouTube' &&
+                      selectedHealth?.state !== 'configuration_required' && (
+                        <button
+                          className="source-refresh"
+                          type="button"
+                          disabled={loadingSource !== null || youtubeKeyBusy}
+                          onClick={() => void clearYouTube()}
+                        >
+                          {t('清除本机 key', 'Clear local key')}
+                        </button>
+                      )}
+                  </>
+                )}
             </div>
           )}
         </header>
@@ -675,9 +697,19 @@ export default function SourceBoards({
                 <span className="health-mark">{sourceMark[source]}</span>
                 <span className="source-health-copy">
                   <strong>{source}</strong>
-                  <small>{item ? healthText(item, locale) : sourcePrompt[source]}</small>
+                  <small>
+                    {source === 'Bilibili' && !hasSearchInterests
+                      ? t('先选择兴趣', 'Choose an interest first')
+                      : item
+                        ? healthText(item, locale)
+                        : sourcePrompt[source]}
+                  </small>
                   <span className="source-health-action">
-                    {urlSources.has(source) ? 'Import URL' : 'Click to fetch'}
+                    {source === 'Bilibili' && !hasSearchInterests
+                      ? t('选择兴趣', 'Choose interests')
+                      : urlSources.has(source)
+                        ? 'Import URL'
+                        : 'Click to fetch'}
                   </span>
                 </span>
                 {loadingSource === source ? (
@@ -786,7 +818,19 @@ export default function SourceBoards({
           </span>
         </div>
 
-        {loadingSource ? (
+        {selectedSource === 'Bilibili' && !hasSearchInterests ? (
+          <div className="source-empty">
+            <MessageCircle size={22} />
+            <h3>{t('先选择兴趣，再搜索 Bilibili', 'Choose an interest to search Bilibili')}</h3>
+            <p>
+              {t(
+                'Bilibili 会用你选定的主题搜索公开视频。',
+                'Bilibili searches public videos using your selected topics.',
+              )}
+            </p>
+            <button onClick={onEditInterests}>{t('选择兴趣', 'Choose interests')}</button>
+          </div>
+        ) : loadingSource ? (
           <div className="source-loading">
             <LoaderCircle className="spinning" />
             <strong>{t('正在采集', `Fetching ${loadingSource}`)}</strong>
