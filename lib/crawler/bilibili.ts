@@ -3,6 +3,13 @@ import { classifyDomain, cleanText, fetchWithTimeout, keywordTags } from './core
 import type { HarvestItem } from './types.ts';
 
 const SEARCH_URL = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
+const SEARCH_HOME_URL = 'https://search.bilibili.com/';
+const BILIBILI_HEADERS = {
+  Referer: SEARCH_HOME_URL,
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+};
 const catalog = domains.flatMap((domain) => domain.tags);
 const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase().trim();
 
@@ -128,6 +135,7 @@ async function searchPage(
   term: string,
   page: number,
   before?: number,
+  session?: { cookie: string | null },
 ): Promise<{ items: HarvestItem[]; hasMore: boolean }> {
   const endpoint = new URL(SEARCH_URL);
   endpoint.searchParams.set('search_type', 'video');
@@ -138,9 +146,19 @@ async function searchPage(
     endpoint.searchParams.set('pubtime_begin_s', '1');
     endpoint.searchParams.set('pubtime_end_s', String(before));
   }
-  const response = await fetchWithTimeout(endpoint.toString(), {
-    headers: { Referer: 'https://search.bilibili.com/' },
-  });
+  const search = () =>
+    fetchWithTimeout(endpoint.toString(), {
+      headers: {
+        ...BILIBILI_HEADERS,
+        ...(session?.cookie ? { Cookie: session.cookie } : {}),
+      },
+    });
+  let response = await search();
+  if (response.status === 412 && session && !session.cookie) {
+    // Bilibili sometimes requires an anonymous search session from cloud hosts.
+    session.cookie = await anonymousSearchCookie();
+    response = await search();
+  }
   if (!response.ok) throw new Error(`Bilibili search returned HTTP ${response.status}`);
   const payload = await response.json();
   const items = parseBilibiliSearch(payload);
@@ -148,14 +166,33 @@ async function searchPage(
   return { items, hasMore: Number.isInteger(numPages) ? page < numPages : items.length >= 20 };
 }
 
+async function anonymousSearchCookie(): Promise<string> {
+  const response = await fetchWithTimeout(
+    SEARCH_HOME_URL,
+    { headers: BILIBILI_HEADERS, redirect: 'manual' },
+    6_000,
+  );
+  if (!response.ok) throw new Error(`Bilibili session returned HTTP ${response.status}`);
+  const setCookie = response.headers.get('set-cookie') ?? '';
+  const cookies = ['buvid3', 'b_nut'].flatMap((name) => {
+    const match = setCookie.match(new RegExp(`(?:^|[,\\s])${name}=([^;,\\s]+)`));
+    return match ? [`${name}=${match[1]}`] : [];
+  });
+  await response.body?.cancel();
+  if (!cookies.some((cookie) => cookie.startsWith('buvid3=')))
+    throw new Error('Bilibili did not provide an anonymous search session');
+  return cookies.join('; ');
+}
+
 async function searchTerms(terms: string[], page: number) {
   const successes: { items: HarvestItem[]; hasMore: boolean }[] = [];
   const errors: string[] = [];
+  const session = { cookie: null as string | null };
   // Bilibili can require verification after a burst of requests. Keep the
   // bilingual searches small and stop immediately when verification appears.
   for (const term of terms) {
     try {
-      successes.push(await searchPage(term, page));
+      successes.push(await searchPage(term, page, undefined, session));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errors.push(message);
@@ -217,11 +254,12 @@ export async function fetchBilibiliSearchPage(
   const nextBounds = [...bounds];
   const successes: HarvestItem[][] = [];
   const errors: string[] = [];
+  const session = { cookie: null as string | null };
   for (let index = 0; index < terms.length; index += 1) {
     const bound = bounds[index];
     if (bound === false) continue;
     try {
-      const result = await searchPage(terms[index], 1, bound ?? undefined);
+      const result = await searchPage(terms[index], 1, bound ?? undefined, session);
       successes.push(result.items);
       const oldest = Math.min(
         ...result.items

@@ -192,6 +192,19 @@ export default function SourceBoards({
       });
       const incoming = await readApiData<HarvestPayload>(response);
       setPayload((current) => mergeHarvestPayload(current, incoming));
+      if (
+        source === 'Bilibili' &&
+        incoming.health.some((item) => item.source === source && item.state === 'error')
+      ) {
+        setLoadError(
+          incoming.warnings.some((warning) => warning.includes('HTTP 412'))
+            ? t(
+                'Bilibili 拒绝了站点的搜索请求，请稍后重试。',
+                'Bilibili rejected this site’s search request. Try again later.',
+              )
+            : t('Bilibili 搜索失败，请重试。', 'Bilibili search failed. Try again.'),
+        );
+      }
       if (source === 'YouTube' || source === 'Bilibili')
         setVideoCursors((current) => ({ ...current, [source]: incoming.nextCursor ?? null }));
       onHarvested?.(incoming, false, source);

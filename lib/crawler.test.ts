@@ -280,6 +280,33 @@ test('Bilibili stops searching when its public API requires verification', async
   }
 });
 
+test('Bilibili retries a blocked search with an anonymous session', async () => {
+  const before = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    requests.push(url.hostname);
+    if (url.hostname === 'search.bilibili.com')
+      return new Response('', {
+        headers: { 'set-cookie': 'buvid3=test-session; Path=/; Domain=.bilibili.com' },
+      });
+    const cookie = new Headers(init?.headers).get('cookie');
+    if (!cookie) return new Response(null, { status: 412 });
+    assert.equal(cookie, 'buvid3=test-session');
+    return Response.json({
+      code: 0,
+      data: { result: [{ bvid: 'BV1pYaA6FE5T', title: 'Robot demo' }] },
+    });
+  };
+  try {
+    const result = await fetchBilibiliSearchPage(['Robot demo']);
+    assert.equal(result.items.length, 1);
+    assert.deepEqual(requests, ['api.bilibili.com', 'search.bilibili.com', 'api.bilibili.com']);
+  } finally {
+    globalThis.fetch = before;
+  }
+});
+
 test('Bilibili keeps valid results when one language search fails', async () => {
   const before = globalThis.fetch;
   const requested: string[] = [];
