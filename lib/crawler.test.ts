@@ -288,7 +288,11 @@ test('Bilibili retries a blocked search with an anonymous session', async () => 
     requests.push(url.pathname);
     if (url.pathname === '/x/frontend/finger/spi')
       return Response.json({ code: 0, data: { b_3: 'test-session', b_4: 'test-session-4' } });
-    const cookie = new Headers(init?.headers).get('cookie');
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get('origin'), 'https://search.bilibili.com');
+    assert.equal(headers.get('sec-fetch-site'), 'same-site');
+    assert.equal(headers.get('referer'), 'https://search.bilibili.com/all?keyword=Robot%20demo');
+    const cookie = headers.get('cookie');
     if (!cookie) return new Response(null, { status: 412 });
     assert.match(cookie, /^buvid3=test-session; buvid4=test-session-4; b_nut=\d+$/);
     return Response.json({

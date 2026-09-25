@@ -7,9 +7,14 @@ const SEARCH_HOME_URL = 'https://search.bilibili.com/';
 const ANONYMOUS_SESSION_URL = 'https://api.bilibili.com/x/frontend/finger/spi';
 const BILIBILI_HEADERS = {
   Referer: SEARCH_HOME_URL,
+  Origin: 'https://search.bilibili.com',
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'Sec-Fetch-Dest': 'empty',
+  'Sec-Fetch-Mode': 'cors',
+  'Sec-Fetch-Site': 'same-site',
 };
 const catalog = domains.flatMap((domain) => domain.tags);
 const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase().trim();
@@ -151,6 +156,7 @@ async function searchPage(
     fetchWithTimeout(endpoint.toString(), {
       headers: {
         ...BILIBILI_HEADERS,
+        Referer: `${SEARCH_HOME_URL}all?keyword=${encodeURIComponent(term)}`,
         ...(session?.cookie ? { Cookie: session.cookie } : {}),
       },
     });
